@@ -16,6 +16,7 @@ mod libc;
 mod ms;
 mod native;
 mod registries;
+pub mod resolver;
 mod scope;
 mod utils;
 

@@ -1,0 +1,128 @@
+
+
+
+async fn foo() Vec[u8] {
+	// section 0
+	println("Called Foo");
+
+	// section 1	
+	let bytes = await std.fs.readFile("/path/to/file");
+	
+	// section 2
+	await std.time.sleep(std.time.Duration.fromSeconds(5));
+
+	// section 3
+	return bytes;
+}
+
+
+async fn fooWithControlFlow(a i32) Vec[u8] {
+
+	// section 0
+	println("Called Foo");
+
+	// section 1	
+	let bytes = await std.fs.readFile("/path/to/file");
+
+
+	if a < 10 {
+		println("Gonna wait a seconds");
+		// section 2
+		await std.time.sleep(std.time.Duration.fromSeconds(a));
+		println("Waited a seconds");
+	}
+
+	// section 3
+	return bytes;
+}
+
+
+# If we are doing coroutines
+
+fn foo() Vec[u8] {
+	let readingCoroutine = std.fs.readFile("/path/to/file");
+	let bytes = yield(readingCoroutine);
+	let sleepingCoroutine = std.time.sleep(std.time.Duration.fromSeconds(5));
+	yield(sleepingCoroutine);
+	return bytes;
+}
+
+# if we are doing futures
+
+struct FooStack_Future {
+	bytes_fut ReadFile_Future
+	bytes Vec[u8]
+	sleep_fut  Sleep_Future
+	section u64
+}
+
+impl FooStack_Future {
+	fn poll(&mut self) Option[Vec[u8]] {
+		if self.section == 0 {
+			self.bytes_fut = std.fs.readFile("/path/to/file");
+			self.section = self.section + 1;
+			return Option.None;
+		} 
+		if self.section == 1 {
+			if Option.Some(result) = self.bytes_fut.poll() {
+				self.bytes = result
+				self.sleep_fut = std.time.sleep(std.time.Duration.fromSeconds(5));
+				self.section =  self.section + 1
+			} 
+			return Option.None;
+		} 
+		if self.section == 2 {
+			if Option.Some == self.sleep_fut.poll() {
+				self.section = self.section + 1;
+			} 
+			return Option.None;
+		}
+
+		return Option.Some(self.bytes)
+	}
+}
+
+#inline
+fn foo() FooStack_Future {
+	return FooStack_Future {
+		section: 0 // everything else is zero initialized and unsafe but we can gurantee proper contorl flow, since we generate the code
+	}
+}
+
+
+# the generator function psuedo code
+
+fn generate_future_struct(fn_decl: FunctionDeclaration) {
+	let mut struct_ty = MsStructType::new();
+
+	struct_ty.add_field("section", MsU64Type::new());
+
+	for (variable_name, variable_ty) in get_all_let_statements(fn_decl) {
+		struct_ty.add_field(variable_name, variable_ty);
+	}
+
+	let poll_fn = MsFunctionBuilder::new(MsFunctionSignature::new(map!{"self": "@mut Self"}, MsOptionType::new(fn_decl.return_type)));
+	for section in get_async_sections(fn_decl) {
+		compile_async_blocks(struct_ty, section);
+	}
+
+	let trait = MsTrait::new();
+	trait.add_function(poll_fn);
+
+	let current_fn = MsFunctionBuilder::new(MsFunctionSignature::from(fn_decl));
+	struct_ty.zero_init(current_fn);
+	struct_ty.get_returned(current_fn);
+
+	return current_fn;
+}
+
+
+
+
+
+fn main() {
+	let bytes = std.async.runCoroutine(foo());
+	let s = String.fromVec(bytes);
+	println(s);
+}
+

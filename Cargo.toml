@@ -1,29 +1,27 @@
 [package]
 name = "mantis"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.80"
-clap = { version = "4.5.1", features = ["derive"] }
-cranelift = "0.105.2"
-cranelift-jit = "0.105.2"
-cranelift-module = "0.105.2"
-cranelift-native = "0.105.2"
-cranelift-object = "0.105.2"
-env_logger = "0.11.3"
-log = "0.4.22"
-logos = "0.14.0"
-rand = "0.8.5"
-mantis_expression = { path= "./mantis_expression"}
-mantis_tokens = { path= "./mantis_tokens"}
+anyhow = "1.0.102"
+clap = { version = "4.6.0", features = ["derive"] }
+cranelift = "0.129.1"
+cranelift-jit = "0.129.1"
+cranelift-module = "0.129.1"
+cranelift-native = "0.129.1"
+cranelift-object = "0.129.1"
+env_logger = "0.11.9"
+log = "0.4.29"
+logos = "0.16.1"
+rand = "0.10.0"
+mantis_parser = { path = "./mantis_parser" }
 linear-map = "1.2.0"
 
 
 [workspace]
 members =[
-  "mantis_expression",
-  "mantis_tokens"
+  "mantis_parser"
 ]
