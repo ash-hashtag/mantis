@@ -6,7 +6,9 @@ use cranelift::{
 };
 use cranelift_module::{default_libcall_names, DataDescription, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
-use mantis_expression::pratt::{Block, Declaration, FunctionDecl, Type};
+use mantis_parser::ast::{
+    Block, Declaration, FnDecl, Program, TypeDef, TypeDefBody, TypeExpr, ImplBlock, TraitDef,
+};
 
 use crate::{
     backend::compile_function::TraitFunctionFor,
@@ -20,16 +22,15 @@ use crate::{
 
 use super::compile_function::{compile_function, random_string};
 
-pub fn resolve_type_term(ty: &Type, ms_ctx: &MsContext) {
+pub fn resolve_type_term(ty: &TypeExpr, ms_ctx: &MsContext) {
     match ty {
-        Type::Struct { fields } => todo!(),
-        Type::WithGenerics(_, vec) => todo!(),
+        TypeExpr::Generic(_, _) => todo!(),
         _ => todo!(),
     };
 }
 
 pub fn compile_binary(
-    declarations: Vec<Declaration>,
+    program: Program,
     include_dirs: Vec<String>,
     module_name: &str,
     auto_drop: bool,
@@ -49,7 +50,7 @@ pub fn compile_binary(
     let mut ms_ctx = MsContext::new(0);
     ms_ctx.disable_auto_drop = !auto_drop;
 
-    for declaration in declarations {
+    for declaration in program.declarations {
         match declaration {
             Declaration::Function(function_decl) => {
                 compile_function(
@@ -62,45 +63,68 @@ pub fn compile_binary(
                     None,
                 );
             }
-            Declaration::Type(name, ty) => {
-                match name {
-                    Type::WithGenerics(word_span, generics) => {
-                        let generics = generics
-                            .iter()
-                            .map(|x| x.word().unwrap().to_string())
-                            .collect::<Vec<_>>();
-                        let template =
-                            Rc::new(ms_ctx.current_module.resolve_with_generics(&ty, &generics));
-                        let key = word_span.word().unwrap();
-                        log::info!("template generated aliased {} -> {:?}", key, template);
-                        ms_ctx
-                            .current_module
-                            .type_templates
-                            .registry
-                            .insert(key.into(), template.clone());
-                    }
-                    Type::Word(word_span) => {
-                        if let Some(MsResolved::Type(resolved)) = ms_ctx.current_module.resolve(&ty)
-                        {
-                            let alias = word_span.as_str();
-                            ms_ctx
-                                .current_module
-                                .type_registry
-                                .add_alias(alias, resolved.id);
-                        } else {
-                            log::warn!("found an undefined type, creating type");
-                            todo!("add types to ms_context");
+            Declaration::TypeDef(typedef) => {
+                let name = &typedef.name;
+                match &typedef.definition {
+                    TypeDefBody::Alias(_) | TypeDefBody::Struct(_) | TypeDefBody::Enum(_) => {
+                        match name {
+                            TypeExpr::Generic(base, generics) => {
+                                let generics = generics
+                                    .iter()
+                                    .map(|x| x.as_name().unwrap().to_string())
+                                    .collect::<Vec<String>>();
+                                let resolved_ty = match &typedef.definition {
+                                    TypeDefBody::Alias(ty) => ty.clone(),
+                                    // For struct/enum defs, resolve differently
+                                    _ => name.clone(),
+                                };
+                                let template = Rc::new(
+                                    ms_ctx.current_module.resolve_with_generics(&resolved_ty, &generics),
+                                );
+                                let key = base.as_name().unwrap();
+                                log::info!("template generated aliased {} -> {:?}", key, template);
+                                ms_ctx
+                                    .current_module
+                                    .type_templates
+                                    .registry
+                                    .insert(key.into(), template.clone());
+                            }
+                            TypeExpr::Named(ident) => {
+                                let alias = ident.name.as_str();
+                                match &typedef.definition {
+                                    TypeDefBody::Alias(target_ty) => {
+                                        if let Some(MsResolved::Type(resolved)) =
+                                            ms_ctx.current_module.resolve(target_ty)
+                                        {
+                                            ms_ctx
+                                                .current_module
+                                                .type_registry
+                                                .add_alias(alias, resolved.id);
+                                        } else {
+                                            log::warn!("found an undefined type, creating type");
+                                            todo!("add types to ms_context");
+                                        }
+                                    }
+                                    _ => {
+                                        // struct/enum definitions handled during resolve
+                                        todo!("struct/enum type registration");
+                                    }
+                                }
+                            }
+                            _ => todo!(),
                         }
                     }
-                    _ => todo!(),
                 };
             }
             Declaration::Use(_use_decl) => {
                 todo!("use decl should compile the modules");
             }
-            Declaration::Trait(trait_decl) => {
-                let trait_name = trait_decl.name.word().unwrap();
-                let functions = trait_decl.functions;
+            Declaration::Import(_import_decl) => {
+                todo!("import decl should compile the modules");
+            }
+            Declaration::Trait(trait_def) => {
+                let trait_name = trait_def.name.as_name().unwrap();
+                let functions = trait_def.methods;
 
                 ms_ctx
                     .current_module
@@ -114,20 +138,19 @@ pub fn compile_binary(
                     .insert(trait_name.into(), Default::default());
 
                 log::info!("Added functions of trait {}", trait_name);
-
-                // todo!("add traits to ms_context");
             }
-            Declaration::TraitImpl(trait_decl, ty) => {
-                if trait_decl.generics.is_empty() {
-                    let ty = ms_ctx.current_module.resolve(&ty).unwrap().ty().unwrap();
+            Declaration::Impl(impl_block) => {
+                if impl_block.generics.is_empty() {
+                    let for_type = impl_block.for_type.as_ref().expect("impl block should have a for_type");
+                    let ty = ms_ctx.current_module.resolve(for_type).unwrap().ty().unwrap();
                     ms_ctx
                         .current_module
                         .add_alias(TypeNameWithGenerics::new("Self".into(), vec![]), ty.clone());
 
-                    let trait_name = trait_decl.name.word().unwrap();
+                    let trait_name = impl_block.trait_name.as_name().unwrap();
                     let mut fn_registry = MsFunctionRegistry::default();
 
-                    for function in trait_decl.functions {
+                    for function in impl_block.methods {
                         let trait_fn_for = TraitFunctionFor {
                             trait_name,
                             on_type: &ty,
@@ -145,15 +168,26 @@ pub fn compile_binary(
                         );
                     }
                 } else {
-                    let mut generics = Vec::new();
-                    for function in trait_decl.functions {
-                        let func_name: Box<str> = function.name.word().unwrap().into();
+                    let generics: Vec<Box<str>> = impl_block
+                        .generics
+                        .iter()
+                        .map(|g| g.name.clone().into_boxed_str())
+                        .collect();
+
+                    for function in impl_block.methods {
+                        let func_name: Box<str> = function
+                            .name
+                            .as_ref()
+                            .and_then(|n| n.as_name())
+                            .unwrap()
+                            .into();
                         let template = MsGenericFunction {
                             decl: Rc::new(function),
                             generics: generics.clone(),
                         };
 
-                        let ty_name = TypeNameWithGenerics::from_type(&ty).unwrap().name;
+                        let for_type = impl_block.for_type.as_ref().unwrap();
+                        let ty_name = TypeNameWithGenerics::from_type(for_type).unwrap().name;
 
                         let registry = if let Some(registry) = ms_ctx
                             .current_module
@@ -179,9 +213,6 @@ pub fn compile_binary(
 
                         registry.push(template);
                     }
-
-                    // it is a trait template
-                    // todo!("Trait Template registration");
                 }
                 ms_ctx.current_module.clear_aliases();
             }
@@ -209,3 +240,4 @@ pub fn compile_main_fn(
         .declare_function("main", Linkage::Preemptible, &ctx.func.signature)
         .unwrap();
 }
+

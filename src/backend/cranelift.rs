@@ -9,7 +9,7 @@ use codegen::ir::{condcodes, Inst};
 use cranelift::{
     codegen::{
         ir::{
-            types::{I64, R64},
+            types::{I64},
             UserExternalName, UserFuncName,
         },
         isa::{CallConv, TargetFrontendConfig, TargetIsa},
@@ -178,8 +178,7 @@ fn build_ifelse_main_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
     f.switch_to_block(entry_block);
     f.seal_block(entry_block);
 
-    let i = Variable::new(1);
-    f.declare_var(i, types::I32);
+    let i = f.declare_var(types::I32);
     let a = f.block_params(entry_block)[0];
     f.def_var(i, a);
 
@@ -274,8 +273,7 @@ fn build_loop_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
     f.switch_to_block(entry_block);
     f.seal_block(entry_block);
 
-    let i = Variable::new(1);
-    f.declare_var(i, types::I32);
+    let i = f.declare_var(types::I32);
     let a = f.block_params(entry_block)[0];
     let zero = f.ins().iconst(types::I32, 0);
     f.def_var(i, zero);

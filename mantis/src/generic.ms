@@ -1,8 +1,8 @@
-fn malloc(size: i64) i64 extern;
+fn malloc(size i64) i64 extern;
 
-struct Array[T] {
-	ptr: ptr[T],
-	size: u64,
+type Array[T] = struct {
+	ptr ptr[T],
+	size u64
 }
 
 

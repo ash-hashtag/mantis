@@ -3,12 +3,12 @@ fn free(ptr i64) extern;
 fn write(fd i64, data_ptr i64, count i64) i64 extern;
 fn memcpy(dest i64, src i64, size i64) i64 extern;
 
-struct Array[T] {
+type Array[T] = struct {
 	ptr pointer[T],
 	size u64
 }
 
-fn array_new[T](size u64) -> pointer[Array[T]] {
+fn array_new[T](size u64) pointer[Array[T]] {
 	let ptr pointer[T] = malloc(size * #size_of(T)) as pointer[T];
 	let arr pointer[Array[T]] = malloc(#size_of(Array[T])) as pointer[Array[T]];
 	arr.ptr = ptr;
@@ -30,7 +30,7 @@ fn array_set_at[T](arr pointer[Array[T]], index u64, value T) {
 }
 
 
-struct Vec[T] {
+type Vec[T] = struct {
 	ptr pointer[T],
 	cap u64,
 	size u64
@@ -78,7 +78,7 @@ fn Vec_push[T](v pointer[Vec[T]], el T) {
 
 fn Vec_pop[T](v pointer[Vec[T]]) T {
 	if v.size > 0 {
-		v.size -= 1;
+		v.size = v.size - 1;
 	}
 	return Vec_get_at(v.size + 1);
 }

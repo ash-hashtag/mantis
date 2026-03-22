@@ -1,18 +1,18 @@
 
-// fn  fwrite(ptr: i64, size: i64, nmemb: i64, stream: i64) i64 extern;
-fn  malloc(size: i64) i64 extern;
-fn  free(ptr: i64) extern;
-// fn  fopen(file_path_ptr: i64, mode_ptr: i64) i64 extern;
-// fn  fread(buffer_ptr: i64, size: i64, count: i64, file_ptr: i64) i64 extern;
-// fn  puts(ptr: i64) i32 extern;
-// fn  fclose(file_ptr: i64) i32 extern;
-// fn  write(fd: i64, data_ptr: i64, count: i64) i64 extern;
-// fn  rand() i32 extern;
+// fn fwrite(ptr i64, size i64, nmemb i64, stream i64) i64 extern;
+fn malloc(size i64) i64 extern;
+fn free(ptr i64) extern;
+// fn fopen(file_path_ptr i64, mode_ptr i64) i64 extern;
+// fn fread(buffer_ptr i64, size i64, count i64, file_ptr i64) i64 extern;
+// fn puts(ptr i64) i32 extern;
+// fn fclose(file_ptr i64) i32 extern;
+// fn write(fd i64, data_ptr i64, count i64) i64 extern;
+// fn rand() i32 extern;
 
-struct Foo {
-	a: i32,
-	b: i64,
-	c: f32,
+type Foo = struct {
+	a i32,
+	b i64,
+	c f32
 }
 
 
@@ -21,12 +21,12 @@ fn twenty() i64 {
 	return 20;
 }
 
-fn add(a: i64, b: i64) i64 {
+fn add(a i64, b i64) i64 {
 	return a + b + twenty();
 } 
 
 
-fn main(argc: i32, argv: i64) i32 {
+fn main(argc i32, argv i64) i32 {
 	let b: i64 = 7;
 	let i: i64 = argc as i64;
 

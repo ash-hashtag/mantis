@@ -1,8 +1,8 @@
 
 /*
 
-#macro -> anything starts with # is a compile time function, most of the time is a macro
-$CompType -> anything starting with $ is a compile time only type, these types can't be used in runtime, they can only be used inside macros
+#macro anything starts with # is a compile time function, most of the time is a macro
+$CompType anything starting with $ is a compile time only type, these types can't be used in runtime, they can only be used inside macros
 
 */
 
@@ -30,7 +30,7 @@ fn #vec[T](args $Args[U]) Vec[T] where
 	let idx = 0;
 	loop {
 		v.push(args.at(idx).into());
-		idx += 1;
+		idx = idx + 1;
 		if idx == args.len() {
 			break;
 		}

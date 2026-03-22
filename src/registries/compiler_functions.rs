@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use cranelift::prelude::{types, FunctionBuilder, InstBuilder, StackSlotData};
 use cranelift_object::ObjectModule;
-use mantis_tokens::MantisLexerTokens;
+use mantis_parser::ast::Expr;
 
 use crate::{frontend::tokens::MsNode, ms::MsContext, native::instructions::NodeResult};
 
@@ -56,9 +56,10 @@ fn ms_size_of_fn(
     fbx: &mut FunctionBuilder,
     _module: &mut ObjectModule,
 ) -> NodeResult {
-    let Some(MsNode::Var(MantisLexerTokens::Word(ty_name))) = nodes.first() else {
+    let Some(crate::frontend::tokens::MsNode::Ident(ident)) = nodes.first() else {
         panic!("Invalid type name or missing {:?}", nodes);
     };
+    let ty_name = ident.name.clone();
 
     let ty = ms_ctx
         .current_module

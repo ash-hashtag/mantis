@@ -45,8 +45,7 @@ impl MsVariable {
         local_variables: &mut LocalVariables,
         fbx: &mut FunctionBuilder<'_>,
     ) -> anyhow::Result<()> {
-        let var = Variable::new(local_variables.len());
-        fbx.try_declare_var(var, self.backend_type)?;
+        let var = fbx.declare_var(self.backend_type);
         fbx.try_def_var(var, value)
             .map_err(|err| anyhow::anyhow!(err))?;
         local_variables.insert(

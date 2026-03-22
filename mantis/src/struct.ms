@@ -1,8 +1,8 @@
 
-struct Foo {
+type Foo = struct {
 	a i64,
 	b i64,
-	c f64,
+	c f64
 }
 
 

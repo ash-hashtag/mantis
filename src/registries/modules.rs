@@ -6,7 +6,7 @@ use std::{
 };
 
 use linear_map::LinearMap;
-use mantis_expression::pratt::Type;
+use mantis_parser::ast::TypeExpr as Type;
 
 use crate::{
     backend::compile_function::random_string,
@@ -99,7 +99,7 @@ impl MsModule {
     }
 
     pub fn resolve_from_str(&mut self, type_name: &str) -> Option<MsResolved> {
-        self.resolve(&Type::Word(type_name.into()))
+        self.resolve(&Type::Named(mantis_parser::ast::Ident::new(type_name, mantis_parser::token::Span::new(0, 0))))
     }
 
     pub fn resolve(&mut self, type_name: &Type) -> Option<MsResolved> {
@@ -110,9 +110,9 @@ impl MsModule {
         }
 
         match type_name {
-            Type::WithGenerics(ty, generics) => {
+            Type::Generic(base, generics) => {
                 {
-                    let generic_key = type_name.to_string();
+                    let generic_key = format!("{:?}", type_name);
                     if let Some(ty) = self.type_registry.get_from_str(&generic_key) {
                         return Some(MsResolved::Type(ty.clone()));
                     }
@@ -121,7 +121,7 @@ impl MsModule {
                     }
                 }
                 {
-                    let key = ty.to_string();
+                    let key = base.as_name().unwrap_or_default().to_string();
                     if let Some(template) = self.type_templates.registry.get(key.as_str()).cloned()
                     {
                         log::info!("found template {}, generating struct", key);
@@ -148,8 +148,8 @@ impl MsModule {
                 }
                 return None;
             }
-            Type::Word(span) => {
-                let key = span.as_str();
+            Type::Named(ident) => {
+                let key = ident.name.as_str();
                 if let Some(ty) = self.type_registry.get_from_str(key) {
                     return Some(MsResolved::Type(ty.clone()));
                 }
@@ -160,10 +160,9 @@ impl MsModule {
             }
             Type::Nested(root, child) => {
                 if let Some(MsResolved::Type(ty)) = self.resolve(root) {
-                    // let self_traits = self.trait_registry.registry.get("Self")?;
                     match &ty.ty {
                         MsType::Enum(enum_ty) => {
-                            let variant_name = child.word()?;
+                            let variant_name = child.as_name()?;
                             return Some(MsResolved::EnumUnwrap(ty, variant_name.into()));
                         }
                         _ => {}
@@ -173,31 +172,14 @@ impl MsModule {
                         .map
                         .get(&ty.id)?
                         .registry
-                        .get(child.word()?)?;
+                        .get(child.as_name()?)?;
                     return Some(MsResolved::Function(func.clone()));
                 }
 
-                let key = root.to_string();
+                let key = root.as_name().unwrap_or_default().to_string();
 
                 let module = self.submodules.get_mut(key.as_str())?;
                 return module.resolve(child);
-            }
-            Type::Struct { fields } => {
-                let mut struct_ty = MsStructType::default();
-
-                for (key, value) in fields {
-                    let field_name = key.as_str();
-                    let Some(MsResolved::Type(field_ty)) = self.resolve(value) else {
-                        panic!("undefined type {}: {:?}", field_name, value);
-                    };
-                    struct_ty.add_field(field_name, field_ty);
-                }
-
-                let struct_name = random_string(24);
-                let ty = MsType::Struct(Rc::new(struct_ty));
-                let id = self.type_registry.add_type(struct_name, ty.clone());
-
-                return Some(MsResolved::Type(MsTypeWithId { id, ty }));
             }
 
             Type::Ref(ty, is_mutable) => {
@@ -208,7 +190,6 @@ impl MsModule {
 
             _ => unreachable!("unhandled {:?}", type_name),
         };
-        // return None;
     }
 
     pub fn resolve_with_generics(
@@ -217,67 +198,23 @@ impl MsModule {
         root_generices: &[String],
     ) -> MsGenericTemplate {
         match type_name {
-            Type::WithGenerics(ty, generics) => {
+            Type::Generic(_, _) | Type::Named(_) => {
                 let template = MsGenericTemplate {
                     generics: root_generices.to_vec(),
                     inner_type: MsGenericTemplateInner::Type(
                         TypeNameWithGenerics::from_type(type_name).unwrap(),
                     ),
-                };
-
-                return template;
-            }
-            Type::Word(span) => {
-                let template = MsGenericTemplate {
-                    generics: root_generices.to_vec(),
-                    inner_type: MsGenericTemplateInner::Type(
-                        TypeNameWithGenerics::from_type(type_name).unwrap(),
-                    ),
-                };
-
-                return template;
-            }
-            Type::Struct { fields } => {
-                let mut map = LinearMap::<Box<str>, TypeNameWithGenerics>::new();
-
-                for (key, value) in fields {
-                    let ty = TypeNameWithGenerics::from_type(value).unwrap();
-                    map.insert(key.as_str().into(), ty);
-                }
-
-                let template = MsGenericTemplate {
-                    generics: root_generices.to_vec(),
-                    inner_type: MsGenericTemplateInner::Struct(StructWithGenerics { map }),
                 };
 
                 return template;
             }
             Type::Nested(root, child) => {
-                let key = root.to_string();
+                let key = root.as_name().unwrap_or_default().to_string();
                 let module = self
                     .submodules
                     .get_mut(key.as_str())
                     .expect("can't find module");
                 return module.resolve_with_generics(child, root_generices);
-            }
-            Type::Enum { fields } => {
-                let mut map = LinearMap::<Box<str>, Option<TypeNameWithGenerics>>::new();
-
-                for (variant_name, fields) in fields {
-                    let argument = fields
-                        .first()
-                        .and_then(|x| TypeNameWithGenerics::from_type(x));
-
-                    map.insert(variant_name.as_str().into(), argument);
-                }
-
-                let inner = MsGenericTemplateInner::Enum(EnumWithGenerics { map });
-
-                let template = MsGenericTemplate {
-                    generics: root_generices.to_vec(),
-                    inner_type: inner,
-                };
-                return template;
             }
             _ => unreachable!("unhandled {:?}", type_name),
         };

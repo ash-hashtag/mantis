@@ -5,7 +5,7 @@ fn split_strings(s String, c Char) Vec[String] {
 	mut result = Vec[String].new();
 	mut prev = 0;
 	
-	for i in 0..s.len() {
+	loop {
 		if (s[i] == c) {
 			result.push(s.substring(prev, i));
 			prev = i + 1;
@@ -18,15 +18,15 @@ fn split_strings(s String, c Char) Vec[String] {
 
 
 type ArenaAllocator = struct {
-	pages Vec[Array[u8]]
-	cursor u64 
+	pages Vec[Array[u8]],
+	cursor u64
 }
 
 #impl(ArenaAllocator, Default);
 #impl(ArenaAllocator, Clone);
 
 impl ArenaAllocator {
-	fn new() -> Self {
+	fn new() Self {
 		Self.default()
 	}
 

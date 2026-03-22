@@ -2,7 +2,7 @@ use std::{collections::HashMap, rc::Rc};
 
 use cranelift_module::FuncId;
 use linear_map::LinearMap;
-use mantis_expression::pratt::{FunctionDecl, WordSpan};
+use mantis_parser::ast::FnDecl as FunctionDecl;
 
 use crate::frontend::tokens::MsFunctionDeclaration;
 

@@ -1,5 +1,5 @@
 use cranelift_module::FuncId;
-use mantis_expression::node::BinaryOperation;
+use mantis_parser::ast::BinOp as BinaryOperation;
 use std::{collections::BTreeMap, rc::Rc};
 
 use cranelift::{
@@ -27,11 +27,11 @@ use crate::{
     scope::{MsLoopScopes, MsScopes, MsVarScopes},
 };
 
-use super::tokenizer::parse_fn_call_args;
 
-use mantis_tokens::MantisLexerTokens;
 
-pub type MsNode = mantis_expression::node::Node;
+use mantis_parser::token::Token as MantisLexerTokens;
+
+pub type MsNode = mantis_parser::ast::Expr;
 
 #[derive(Clone, Debug)]
 pub enum Token {
@@ -257,29 +257,25 @@ impl BuiltInType {
         }
     }
 
-    pub fn from_str(i: &MantisLexerTokens) -> Result<Self, ()> {
-        if let MantisLexerTokens::Word(value) = i {
-            let t = match value.as_str() {
-                "i8" => BuiltInType::I8,
-                "i16" => BuiltInType::I16,
-                "i32" => BuiltInType::I32,
-                "i64" => BuiltInType::I64,
-                "i128" => BuiltInType::I128,
-                "u8" => BuiltInType::U8,
-                "u16" => BuiltInType::U16,
-                "u32" => BuiltInType::U32,
-                "u64" => BuiltInType::U64,
-                "u128" => BuiltInType::U128,
-                "f32" => BuiltInType::F32,
-                "f64" => BuiltInType::F64,
-                "pointer" => BuiltInType::Pointer,
-                _ => return Err(()),
-            };
+    pub fn from_str(value: &str) -> Result<Self, ()> {
+        let t = match value {
+            "i8" => BuiltInType::I8,
+            "i16" => BuiltInType::I16,
+            "i32" => BuiltInType::I32,
+            "i64" => BuiltInType::I64,
+            "i128" => BuiltInType::I128,
+            "u8" => BuiltInType::U8,
+            "u16" => BuiltInType::U16,
+            "u32" => BuiltInType::U32,
+            "u64" => BuiltInType::U64,
+            "u128" => BuiltInType::U128,
+            "f32" => BuiltInType::F32,
+            "f64" => BuiltInType::F64,
+            "pointer" => BuiltInType::Pointer,
+            _ => return Err(()),
+        };
 
-            return Ok(t);
-        }
-
-        Err(())
+        return Ok(t);
     }
 
     fn from_var_type(var: VariableType) -> Result<Self, ()> {
@@ -1200,18 +1196,18 @@ pub enum Operator {
 }
 
 impl Operator {
-    fn try_from(value: MantisLexerTokens) -> Result<Self, ()> {
+    fn try_from(value: &str) -> Result<Self, ()> {
         Ok(match value {
-            MantisLexerTokens::Add => Self::Add,
-            MantisLexerTokens::Sub => Self::Sub,
-            MantisLexerTokens::Multiply => Self::Multiply,
-            MantisLexerTokens::Divide => Self::Divide,
-            MantisLexerTokens::Assign => Self::Assign,
-            MantisLexerTokens::EqualTo => Self::EqualTo,
-            MantisLexerTokens::NotEqualTo => Self::NotEqualTo,
-            MantisLexerTokens::GreaterThan => Self::GreaterThan,
-            MantisLexerTokens::LessThan => Self::LessThan,
-            MantisLexerTokens::Dot => Self::StructAccess,
+            "+" => Self::Add,
+            "-" => Self::Sub,
+            "*" => Self::Multiply,
+            "/" => Self::Divide,
+            "=" => Self::Assign,
+            "==" => Self::EqualTo,
+            "!=" => Self::NotEqualTo,
+            ">" => Self::GreaterThan,
+            "<" => Self::LessThan,
+            "." => Self::StructAccess,
 
             _ => return Err(()),
         })

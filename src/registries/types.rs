@@ -8,10 +8,7 @@ use std::{
 use codegen::ir::{condcodes, Inst};
 use cranelift::prelude::*;
 use linear_map::LinearMap;
-use mantis_expression::{
-    node::BinaryOperation,
-    pratt::{self, FunctionDecl},
-};
+use mantis_parser::ast::{self, BinOp as BinaryOperation, FnDecl as FunctionDecl, TypeExpr};
 
 use crate::{backend::compile_function::random_string, native::instructions::Either};
 
@@ -284,12 +281,12 @@ impl MsNativeType {
 fn binary_cmp_op_to_condcode_fcc(op: BinaryOperation) -> condcodes::FloatCC {
     use condcodes::FloatCC;
     match op {
-        BinaryOperation::GreaterThan => FloatCC::GreaterThan,
-        BinaryOperation::GreaterThanOrEqualTo => FloatCC::GreaterThanOrEqual,
-        BinaryOperation::EqualTo => FloatCC::Equal,
-        BinaryOperation::NotEqualTo => FloatCC::NotEqual,
-        BinaryOperation::LessThan => FloatCC::LessThan,
-        BinaryOperation::LessThanOrEqualTo => FloatCC::GreaterThanOrEqual,
+        BinaryOperation::Gt => FloatCC::GreaterThan,
+        BinaryOperation::GtEq => FloatCC::GreaterThanOrEqual,
+        BinaryOperation::Eq => FloatCC::Equal,
+        BinaryOperation::NotEq => FloatCC::NotEqual,
+        BinaryOperation::Lt => FloatCC::LessThan,
+        BinaryOperation::LtEq => FloatCC::GreaterThanOrEqual,
         _ => unreachable!(),
     }
 }
@@ -298,22 +295,22 @@ pub fn binary_cmp_op_to_condcode_intcc(op: BinaryOperation, signed: bool) -> con
     use condcodes::IntCC;
     if signed {
         match op {
-            BinaryOperation::GreaterThan => IntCC::SignedGreaterThan,
-            BinaryOperation::GreaterThanOrEqualTo => IntCC::SignedGreaterThanOrEqual,
-            BinaryOperation::EqualTo => IntCC::Equal,
-            BinaryOperation::NotEqualTo => IntCC::NotEqual,
-            BinaryOperation::LessThan => IntCC::SignedLessThan,
-            BinaryOperation::LessThanOrEqualTo => IntCC::SignedGreaterThanOrEqual,
+            BinaryOperation::Gt => IntCC::SignedGreaterThan,
+            BinaryOperation::GtEq => IntCC::SignedGreaterThanOrEqual,
+            BinaryOperation::Eq => IntCC::Equal,
+            BinaryOperation::NotEq => IntCC::NotEqual,
+            BinaryOperation::Lt => IntCC::SignedLessThan,
+            BinaryOperation::LtEq => IntCC::SignedGreaterThanOrEqual,
             _ => unreachable!(),
         }
     } else {
         match op {
-            BinaryOperation::GreaterThan => IntCC::UnsignedGreaterThan,
-            BinaryOperation::GreaterThanOrEqualTo => IntCC::UnsignedGreaterThanOrEqual,
-            BinaryOperation::EqualTo => IntCC::Equal,
-            BinaryOperation::NotEqualTo => IntCC::NotEqual,
-            BinaryOperation::LessThan => IntCC::UnsignedLessThan,
-            BinaryOperation::LessThanOrEqualTo => IntCC::UnsignedGreaterThanOrEqual,
+            BinaryOperation::Gt => IntCC::UnsignedGreaterThan,
+            BinaryOperation::GtEq => IntCC::UnsignedGreaterThanOrEqual,
+            BinaryOperation::Eq => IntCC::Equal,
+            BinaryOperation::NotEq => IntCC::NotEqual,
+            BinaryOperation::Lt => IntCC::UnsignedLessThan,
+            BinaryOperation::LtEq => IntCC::UnsignedGreaterThanOrEqual,
             _ => unreachable!(),
         }
     }
@@ -381,18 +378,18 @@ impl TypeNameWithGenerics {
         return template.generate(real_types, ms_module);
     }
 
-    pub fn from_type(ty: &pratt::Type) -> Option<Self> {
+    pub fn from_type(ty: &TypeExpr) -> Option<Self> {
         let ty = match ty {
-            pratt::Type::WithGenerics(ty_name, generics) => Self {
-                name: ty_name.to_string().into(),
+            TypeExpr::Generic(base, generics) => Self {
+                name: Box::<str>::from(base.as_name().unwrap_or("")),
                 generics: generics
                     .iter()
                     .map(Self::from_type)
                     .collect::<Option<Vec<_>>>()?,
             },
-            pratt::Type::Word(word_span) => Self {
-                name: word_span.as_str().into(),
-                generics: Vec::new(),
+            TypeExpr::Named(ident) => Self {
+                name: ident.name.clone().into_boxed_str(),
+                generics: vec![],
             },
             _ => {
                 return None;

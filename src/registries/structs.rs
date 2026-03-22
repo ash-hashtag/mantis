@@ -56,6 +56,7 @@ impl MsStructType {
         fbx.create_sized_stack_slot(StackSlotData::new(
             cranelift::prelude::StackSlotKind::ExplicitSlot,
             self.size() as u32,
+            0,
         ))
     }
 
@@ -268,6 +269,7 @@ impl MsEnumType {
         fbx.create_sized_stack_slot(StackSlotData::new(
             cranelift::prelude::StackSlotKind::ExplicitSlot,
             self.size() as u32,
+            0,
         ))
     }
 

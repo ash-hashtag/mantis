@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use cranelift::{
     codegen::{
         ir::{
-            types::{I32, I64, R64},
+            types::{I32, I64},
             AbiParam, FuncRef, InstBuilder, Signature, UserExternalName, UserFuncName, Value,
         },
         Context,
@@ -291,7 +291,7 @@ pub fn print_i64_fn() -> Function {
 
 pub fn main_fn() -> Function {
     let argc = MsVariable::new("argc", "i32", I32);
-    let argv = MsVariable::new("argv", "char*", R64);
+    let argv = MsVariable::new("argv", "char*", I64);
     let exit_code = MsVariable::new("exit_code", "i32", I32);
     let signature = FunctionSignature {
         name: "main".into(),

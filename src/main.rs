@@ -99,11 +99,11 @@ fn handle0(args: Args) {
 
     let declarations = {
         let start = std::time::Instant::now();
-        let decls = mantis_expression::pratt::parse_blocks(&src).expect("Unparsed declarations");
+        let ast = mantis_parser::parse(&src).expect("parsing failed");
         let seconds = start.elapsed().as_secs_f64();
         log::info!("parsing mantis file took {:.4}s", seconds);
 
-        decls
+        ast
     };
     let include_dirs = Vec::new();
     // let (fns, sr) = collect_functions(input);

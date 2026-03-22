@@ -5,7 +5,7 @@ use crate::token::Span;
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /// Root of a parsed Mantis source file.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Program {
     pub declarations: Vec<Declaration>,
 }
@@ -14,7 +14,7 @@ pub struct Program {
 //  Declarations
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Declaration {
     Function(FnDecl),
     TypeDef(TypeDef),
@@ -27,7 +27,7 @@ pub enum Declaration {
 // ── Import ───────────────────────────────────────────────────────────────────
 
 /// `import std.net.IpAddr;`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ImportDecl {
     pub path: Vec<Ident>,
     pub span: Span,
@@ -36,7 +36,7 @@ pub struct ImportDecl {
 // ── Use ──────────────────────────────────────────────────────────────────────
 
 /// `use std.libc as c;`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UseDecl {
     pub path: Vec<Ident>,
     pub alias: Option<Ident>,
@@ -45,7 +45,7 @@ pub struct UseDecl {
 
 // ── Function ─────────────────────────────────────────────────────────────────
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FnDecl {
     pub name: Option<TypeExpr>,
     pub params: Vec<Param>,
@@ -55,7 +55,7 @@ pub struct FnDecl {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Param {
     pub name: Ident,
     pub ty: TypeExpr,
@@ -67,33 +67,33 @@ pub struct Param {
 /// `type Option[T] = enum { Some(T), None }`
 /// `type Vec[T] = struct { capacity u64, slice ArraySlice[T] }`
 /// `type ptr[T] = i64;`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeDef {
     pub name: TypeExpr,
     pub definition: TypeDefBody,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TypeDefBody {
     Alias(TypeExpr),
     Struct(StructDef),
     Enum(EnumDef),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StructDef {
     pub fields: Vec<Param>,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EnumDef {
     pub variants: Vec<EnumVariant>,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EnumVariant {
     pub name: Ident,
     pub fields: Vec<TypeExpr>,
@@ -103,7 +103,7 @@ pub struct EnumVariant {
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
 /// `trait Drop { fn drop(self @mut Self); }`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TraitDef {
     pub name: TypeExpr,
     pub methods: Vec<FnDecl>,
@@ -114,7 +114,7 @@ pub struct TraitDef {
 
 /// `impl[T] Drop for Vec[T] { ... }`
 /// `impl Self for String { ... }`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ImplBlock {
     pub generics: Vec<Ident>,
     pub trait_name: TypeExpr,
@@ -172,13 +172,13 @@ impl TypeExpr {
 //  Blocks & Statements
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Block {
     pub items: Vec<BlockItem>,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BlockItem {
     Statement(Statement),
     IfChain(IfChain),
@@ -187,7 +187,7 @@ pub enum BlockItem {
     Block(Block),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Statement {
     /// `let x = expr;` or `mut x = expr;` or `let x Type = expr;`
     Let {
@@ -221,7 +221,7 @@ pub enum Statement {
 
 // ── If / Elif / Else ─────────────────────────────────────────────────────────
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IfChain {
     pub if_block: ConditionalBlock,
     pub elif_blocks: Vec<ConditionalBlock>,
@@ -229,7 +229,7 @@ pub struct IfChain {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConditionalBlock {
     pub condition: Expr,
     pub body: Block,
@@ -238,7 +238,7 @@ pub struct ConditionalBlock {
 
 // ── Loop ─────────────────────────────────────────────────────────────────────
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LoopBlock {
     pub label: Option<Ident>,
     pub body: Block,
@@ -247,14 +247,14 @@ pub struct LoopBlock {
 
 // ── Match ────────────────────────────────────────────────────────────────────
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MatchBlock {
     pub scrutinee: Expr,
     pub arms: Vec<MatchArm>,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MatchArm {
     pub pattern: Expr,
     pub body: Block,
@@ -265,7 +265,7 @@ pub struct MatchArm {
 //  Expressions
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     /// Integer literal
     IntLit { value: i64, span: Span },
@@ -372,7 +372,7 @@ impl Expr {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FieldInit {
     pub name: Ident,
     pub value: Expr,

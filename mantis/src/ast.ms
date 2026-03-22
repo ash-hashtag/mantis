@@ -1,7 +1,7 @@
-struct Foo {
+type Foo = struct {
 	a i32,
 	b i64,
-	c u32,
+	c u32
 }
 
 
