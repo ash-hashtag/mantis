@@ -194,6 +194,9 @@ type StrVec = Vec[u8];
 
 fn main(argc i32, argv i64) i32 { 
     let s = "hello world\n";
+
+
+    let a = 32;
     
     mut string_test = String.new();
     string_test.push_str(s);
@@ -207,6 +210,7 @@ fn main(argc i32, argv i64) i32 {
 
     println(string_test.slice);
 
+    let b = (1 + a) * a / 2 + string_test.len() >> 3;
     mut i = 0;
     loop {
         if i >= argc as i64 {

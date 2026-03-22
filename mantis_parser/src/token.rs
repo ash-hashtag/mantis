@@ -143,6 +143,10 @@ pub enum Token {
     GtEq,
     #[token("<=")]
     LtEq,
+    #[token("<<")]
+    Shl,
+    #[token(">>")]
+    Shr,
 
     #[token("=")]
     Eq,
@@ -166,6 +170,10 @@ pub enum Token {
     Question,
     #[token("&")]
     Amp,
+    #[token("|")]
+    Pipe,
+    #[token("^")]
+    Caret,
 
     // ── Delimiters ───────────────────────────────────────────
     #[token("(")]

@@ -999,35 +999,42 @@ impl Parser {
             Some(Token::GtEq) => BinOp::GtEq,
             Some(Token::LtEq) => BinOp::LtEq,
             Some(Token::Eq) => BinOp::Assign,
+            Some(Token::Shr) => BinOp::Shr,
+            Some(Token::Shl) => BinOp::Shl,
+            Some(Token::Amp) => BinOp::BitAnd,
+            Some(Token::Pipe) => BinOp::BitOr,
+            Some(Token::Caret) => BinOp::BitXor,
             _ => return Err(self.error(format!("expected binary operator, found {:?}", self.peek()))),
         };
         self.advance();
         Ok(op)
     }
 
-    /// Infix binding power: returns (left_bp, right_bp).
     fn infix_bp(&self) -> Option<(u8, u8)> {
         match self.peek()? {
             Token::Eq | Token::AtAssign => Some((2, 1)),    // right-assoc assignment
-            Token::EqEq | Token::NotEq => Some((5, 6)),
+            Token::EqEq | Token::NotEq => Some((3, 4)),
             Token::Gt | Token::Lt | Token::GtEq | Token::LtEq => Some((5, 6)),
-            Token::Plus | Token::Minus => Some((9, 10)),
-            Token::Star | Token::Slash | Token::Percent => Some((11, 12)),
-            Token::As => Some((13, 14)),                     // cast
-            Token::Dot => Some((19, 20)),                    // field access
+            Token::Pipe => Some((7, 8)),
+            Token::Caret => Some((9, 10)),
+            Token::Amp => Some((11, 12)),
+            Token::Shl | Token::Shr => Some((13, 14)),
+            Token::Plus | Token::Minus => Some((15, 16)),
+            Token::Star | Token::Slash | Token::Percent => Some((17, 18)),
+            Token::As => Some((19, 20)),                     // cast
+            Token::Dot => Some((25, 26)),                    // field access
             _ => None,
         }
     }
 
-    /// Postfix binding power.
     fn postfix_bp(&self) -> Option<u8> {
         match self.peek()? {
-            Token::LParen => Some(17),  // function call
-            Token::Question => Some(17), // propagate
+            Token::LParen => Some(25),  // function call
+            Token::Question => Some(25), // propagate
             _ => None,
         }
     }
 }
 
 /// Binding power for prefix operators.
-const PREFIX_BP: u8 = 15;
+const PREFIX_BP: u8 = 23;

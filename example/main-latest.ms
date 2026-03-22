@@ -42,12 +42,12 @@ fn main() {
 
 }
 
-fn build(s &ArraySlice[MantisSource]) {
+fn build(s @ArraySlice[MantisSource]) {
 	
 
 }
 
-fn buildConfig(c &mut mantis.BuildConfig) {
+fn buildConfig(c @mut mantis.BuildConfig) {
 	c.allowAnySysCalls(true);
 	c.allowAnyExternalFunctions(true);
 
