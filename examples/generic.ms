@@ -1,17 +1,17 @@
 fn malloc(size i64) i64 extern;
 
 type Array[T] = struct {
-	ptr ptr[T],
+	ptr @T,
 	size u64
 }
 
 
 trait Into[T] {
-	fn into(self Ref[Self]) T;
+	fn into(self @Self) T;
 }
 
 impl Into[f64] for u64 {
-	fn into(self MutRef[Self]) f64  {
+	fn into(self @mut Self) f64  {
 		self as f64	
 	}
 }

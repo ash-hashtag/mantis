@@ -824,20 +824,26 @@ impl Parser {
                 let operand = self.parse_expr(PREFIX_BP)?;
                 let full_span = span.merge(operand.span());
                 Ok(Expr::Unary {
+                    op: UnaryOp::Deref,
+                    operand: Box::new(operand),
+                    span: full_span,
+                })
+            }
+            Some(Token::Amp) => {
+                let span = self.advance().span;
+                let operand = self.parse_expr(PREFIX_BP)?;
+                let full_span = span.merge(operand.span());
+                Ok(Expr::Unary {
                     op: UnaryOp::AddrOf,
                     operand: Box::new(operand),
                     span: full_span,
                 })
             }
             Some(Token::Star) => {
-                let span = self.advance().span;
-                let operand = self.parse_expr(PREFIX_BP)?;
-                let full_span = span.merge(operand.span());
-                Ok(Expr::Unary {
-                    op: UnaryOp::Deref,
-                    operand: Box::new(operand),
-                    span: full_span,
-                })
+                // For now, * in prefix position is not used for deref anymore (moved to @)
+                // But could be used for something else later. For now, error or treat as Deref for backward compat if desired.
+                // Switching to error to enforce new syntax.
+                return Err(self.error("expected expression, found '*' (use '@' for dereference)".into()));
             }
 
             // Parenthesized expression

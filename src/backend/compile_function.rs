@@ -111,7 +111,12 @@ pub fn compile_function(
 
     let mut fn_arguments = LinearMap::<Box<str>, MsTypeId>::with_capacity(function.params.len());
     for param in &function.params {
-        let ty = ms_ctx.current_module.resolve(&param.ty).unwrap().ty().unwrap();
+        let ty = ms_ctx
+            .current_module
+            .resolve(&param.ty)
+            .unwrap()
+            .ty()
+            .unwrap();
 
         ctx.func
             .signature
@@ -421,8 +426,7 @@ pub fn compile_nested_struct_field_to_ptr(
             let ty = struct_ty;
             let field = ty.get_field(field_name).expect(&format!(
                 "no field with name {} on {:?}",
-                field_name,
-                root_struct_ty
+                field_name, root_struct_ty
             ));
             let value = fbx.ins().iadd_imm(root_struct_ptr, field.offset as i64);
             return NodeResult::Val(MsVal::new(field.ty, value));
@@ -461,7 +465,11 @@ pub fn compile_node(
             let value = compile_cast(value, ty.clone(), module, fbx, ms_ctx);
             return Some(value);
         }
-        Expr::PointerAssign { target, value, span } => {
+        Expr::PointerAssign {
+            target,
+            value,
+            span,
+        } => {
             let rhs = compile_node(value, module, fbx, ms_ctx).unwrap();
             let lhs = compile_node(target, module, fbx, ms_ctx).unwrap();
             compile_assignment_on_pointers(lhs, rhs, module, fbx, ms_ctx);
@@ -496,7 +504,11 @@ pub fn compile_node(
                                 MsType::Struct(_) | MsType::Enum(_) | MsType::Native(_) => {
                                     let rhs = compile_node(rhs, module, fbx, ms_ctx).unwrap();
                                     compile_assignment_on_pointers(
-                                        final_ptr_res, rhs, module, fbx, ms_ctx,
+                                        final_ptr_res,
+                                        rhs,
+                                        module,
+                                        fbx,
+                                        ms_ctx,
                                     );
                                 }
                                 _ => unreachable!("{:?}", ty),
@@ -532,10 +544,8 @@ pub fn compile_node(
                                 let inner_ty = enum_ty.get_inner_ty(&variant).unwrap();
                                 let var = MsVar::new(inner_ty.id, res_var, true, true);
                                 ms_ctx.var_scopes.add_variable(enum_inner, var);
-                                let op = binary_cmp_op_to_condcode_intcc(
-                                    BinaryOperation::Eq,
-                                    false,
-                                );
+                                let op =
+                                    binary_cmp_op_to_condcode_intcc(BinaryOperation::Eq, false);
 
                                 let tag = enum_ty.get_tag(enum_ptr, fbx);
                                 let expected_tag = enum_ty.get_tag_index(&variant).unwrap();
@@ -579,8 +589,22 @@ pub fn compile_node(
                         let value =
                             compile_binary_operation(*op, lval, rval, nty, module, fbx, ms_ctx);
                         let mut res_ty = lhs_result.ty();
-                        if matches!(op, BinaryOperation::Gt | BinaryOperation::GtEq | BinaryOperation::Eq | BinaryOperation::NotEq | BinaryOperation::Lt | BinaryOperation::LtEq) {
-                             res_ty = ms_ctx.current_module.resolve_from_str("bool").unwrap().ty().unwrap().id;
+                        if matches!(
+                            op,
+                            BinaryOperation::Gt
+                                | BinaryOperation::GtEq
+                                | BinaryOperation::Eq
+                                | BinaryOperation::NotEq
+                                | BinaryOperation::Lt
+                                | BinaryOperation::LtEq
+                        ) {
+                            res_ty = ms_ctx
+                                .current_module
+                                .resolve_from_str("bool")
+                                .unwrap()
+                                .ty()
+                                .unwrap()
+                                .id;
                         }
                         return Some(NodeResult::Val(MsVal::new(res_ty, value)));
                     }
@@ -591,8 +615,15 @@ pub fn compile_node(
                         let tag = enum_ty.get_tag(rhs_result.value(fbx), fbx);
                         let expected_tag = lhs_result.value(fbx);
                         let nty = MsNativeType::Bool;
-                        let value =
-                            compile_binary_operation(*op, tag, expected_tag, nty, module, fbx, ms_ctx);
+                        let value = compile_binary_operation(
+                            *op,
+                            tag,
+                            expected_tag,
+                            nty,
+                            module,
+                            fbx,
+                            ms_ctx,
+                        );
                         let bool_ty = ms_ctx
                             .current_module
                             .resolve_from_str("bool")
@@ -605,17 +636,29 @@ pub fn compile_node(
                 };
             }
         }
-        Expr::Unary { op, operand, span } => {
-            match op {
-                UnaryOp::Deref => {
-                    let node = compile_node(operand, module, fbx, ms_ctx).unwrap();
-                    let ptr_value = node.value(fbx);
-                    let ty = ms_ctx
-                        .current_module
-                        .type_registry
-                        .get_from_type_id(node.ty())
-                        .unwrap();
-                    match ty {
+        Expr::Unary { op, operand, span } => match op {
+            UnaryOp::Deref => {
+                let node = compile_node(operand, module, fbx, ms_ctx).unwrap();
+                let ptr_value = node.value(fbx);
+                let ty = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_from_type_id(node.ty())
+                    .unwrap();
+                match ty.clone() {
+                    MsType::Native(nty) => {
+                        let val = fbx.ins().load(
+                            nty.to_cl_type().unwrap(),
+                            MemFlags::new(),
+                            ptr_value,
+                            0,
+                        );
+                        return Some(NodeResult::Val(MsVal::new(node.ty(), val)));
+                    }
+                    MsType::Struct(_struct_ty) => {
+                        return Some(NodeResult::Val(MsVal::new(node.ty(), ptr_value)));
+                    }
+                    MsType::Ref(inner, _) => match inner.as_ref() {
                         MsType::Native(nty) => {
                             let val = fbx.ins().load(
                                 nty.to_cl_type().unwrap(),
@@ -623,25 +666,48 @@ pub fn compile_node(
                                 ptr_value,
                                 0,
                             );
-                            return Some(NodeResult::Val(MsVal::new(node.ty(), val)));
+                            let inner_ty_id = ms_ctx
+                                .current_module
+                                .type_registry
+                                .add_type(random_string(20), inner.as_ref().clone());
+                            return Some(NodeResult::Val(MsVal::new(inner_ty_id, val)));
                         }
-                        MsType::Struct(_struct_ty) => {
-                            return Some(NodeResult::Val(MsVal::new(node.ty(), ptr_value)));
+                        _ => {
+                            let inner_ty_id = ms_ctx
+                                .current_module
+                                .type_registry
+                                .add_type(random_string(20), inner.as_ref().clone());
+                            return Some(NodeResult::Val(MsVal::new(inner_ty_id, ptr_value)));
                         }
-                        _ => todo!(),
-                    };
-                }
-                UnaryOp::Neg => {
-                    let node = compile_node(operand, module, fbx, ms_ctx).unwrap();
-                    let val = node.value(fbx);
-                    let neg_val = fbx.ins().ineg(val);
-                    return Some(NodeResult::Val(MsVal::new(node.ty(), neg_val)));
-                }
-                UnaryOp::AddrOf => {
-                    todo!("address-of unary operation not implemented")
-                }
+                    },
+                    _ => todo!(),
+                };
             }
-        }
+            UnaryOp::Neg => {
+                let node = compile_node(operand, module, fbx, ms_ctx).unwrap();
+                let val = node.value(fbx);
+                let neg_val = fbx.ins().ineg(val);
+                return Some(NodeResult::Val(MsVal::new(node.ty(), neg_val)));
+            }
+            UnaryOp::AddrOf => match operand.as_ref() {
+                Expr::Ident(ident) => {
+                    let var = ms_ctx.var_scopes.find_variable(&ident.name).unwrap();
+                    let ptr = var.value(fbx);
+                    let ty = ms_ctx
+                        .current_module
+                        .type_registry
+                        .get_from_type_id(var.ty_id)
+                        .unwrap();
+                    let ref_ty = MsType::Ref(Box::new(ty.clone()), var.is_mutable);
+                    let ref_ty_id = ms_ctx
+                        .current_module
+                        .type_registry
+                        .add_type(random_string(20), ref_ty);
+                    return Some(NodeResult::Val(MsVal::new(ref_ty_id, ptr)));
+                }
+                _ => todo!("address-of only implemented for identifiers"),
+            },
+        },
         Expr::Call { callee, args, span } => {
             let fn_type_expr = expr_to_type_expr(callee);
 
@@ -740,17 +806,29 @@ pub fn compile_node(
 
                     // Auto-unwrap StrSlice to pointer if i64 is expected
                     if let Some(&expected_ty_id) = func.arguments.values().nth(arg_idx) {
-                         let str_slice_ty = ms_ctx.current_module.type_registry.get_from_str("StrSlice").map(|t| t.id);
-                         let i64_ty_id = ms_ctx.current_module.type_registry.get_from_str("i64").map(|t| t.id);
+                        let str_slice_ty = ms_ctx
+                            .current_module
+                            .type_registry
+                            .get_from_str("StrSlice")
+                            .map(|t| t.id);
+                        let i64_ty_id = ms_ctx
+                            .current_module
+                            .type_registry
+                            .get_from_str("i64")
+                            .map(|t| t.id);
 
-                         if Some(arg_val.ty()) == str_slice_ty && Some(expected_ty_id) == i64_ty_id {
-                             let ty = ms_ctx.current_module.type_registry.get_from_type_id(arg_val.ty()).unwrap();
-                             if let MsType::Struct(sty) = ty {
-                                 let field = sty.get_field("pointer").unwrap();
-                                 let field_addr = fbx.ins().iadd_imm(val, field.offset as i64);
-                                 val = fbx.ins().load(types::I64, MemFlags::new(), field_addr, 0);
-                             }
-                         }
+                        if Some(arg_val.ty()) == str_slice_ty && Some(expected_ty_id) == i64_ty_id {
+                            let ty = ms_ctx
+                                .current_module
+                                .type_registry
+                                .get_from_type_id(arg_val.ty())
+                                .unwrap();
+                            if let MsType::Struct(sty) = ty {
+                                let field = sty.get_field("pointer").unwrap();
+                                let field_addr = fbx.ins().iadd_imm(val, field.offset as i64);
+                                val = fbx.ins().load(types::I64, MemFlags::new(), field_addr, 0);
+                            }
+                        }
                     }
 
                     call_arg_values.push(val);
@@ -781,17 +859,29 @@ pub fn compile_node(
 
                     // Auto-unwrap StrSlice to pointer if i64 is expected
                     if let Some(&expected_ty_id) = func.arguments.values().nth(arg_idx) {
-                         let str_slice_ty = ms_ctx.current_module.type_registry.get_from_str("StrSlice").map(|t| t.id);
-                         let i64_ty_id = ms_ctx.current_module.type_registry.get_from_str("i64").map(|t| t.id);
+                        let str_slice_ty = ms_ctx
+                            .current_module
+                            .type_registry
+                            .get_from_str("StrSlice")
+                            .map(|t| t.id);
+                        let i64_ty_id = ms_ctx
+                            .current_module
+                            .type_registry
+                            .get_from_str("i64")
+                            .map(|t| t.id);
 
-                         if Some(arg_val.ty()) == str_slice_ty && Some(expected_ty_id) == i64_ty_id {
-                             let ty = ms_ctx.current_module.type_registry.get_from_type_id(arg_val.ty()).unwrap();
-                             if let MsType::Struct(sty) = ty {
-                                 let field = sty.get_field("pointer").unwrap();
-                                 let field_addr = fbx.ins().iadd_imm(val, field.offset as i64);
-                                 val = fbx.ins().load(types::I64, MemFlags::new(), field_addr, 0);
-                             }
-                         }
+                        if Some(arg_val.ty()) == str_slice_ty && Some(expected_ty_id) == i64_ty_id {
+                            let ty = ms_ctx
+                                .current_module
+                                .type_registry
+                                .get_from_type_id(arg_val.ty())
+                                .unwrap();
+                            if let MsType::Struct(sty) = ty {
+                                let field = sty.get_field("pointer").unwrap();
+                                let field_addr = fbx.ins().iadd_imm(val, field.offset as i64);
+                                val = fbx.ins().load(types::I64, MemFlags::new(), field_addr, 0);
+                            }
+                        }
                     }
 
                     call_arg_values.push(val);
@@ -808,13 +898,14 @@ pub fn compile_node(
             if let Some(var) = ms_ctx.var_scopes.find_variable(var_name) {
                 return Some(NodeResult::Var(var.clone()));
             } else {
-                panic!(
-                    "undefined {} word or type name in current scope",
-                    var_name,
-                );
+                panic!("undefined {} word or type name in current scope", var_name,);
             }
         }
-        Expr::Field { object, field, span } => {
+        Expr::Field {
+            object,
+            field,
+            span,
+        } => {
             let type_expr = field_access_to_type_expr(node);
             if let MsTokenType::Nested(root, child) = &type_expr {
                 let var_name = root.as_name().unwrap();
@@ -824,10 +915,7 @@ pub fn compile_node(
                         var, child, ms_ctx, fbx, module,
                     ));
                 } else {
-                    panic!(
-                        "undefined {} word or type name in current scope",
-                        var_name,
-                    );
+                    panic!("undefined {} word or type name in current scope", var_name,);
                 }
             }
             todo!("unhandled field access pattern")
@@ -1027,6 +1115,54 @@ pub fn compile_node(
 
                 return Some(NodeResult::Val(MsVal::new(resolved.id, res)));
             }
+            if name == "size_of" {
+                let Some(arg) = args.first() else {
+                    panic!("#size_of requires an argument");
+                };
+                let resolved = match arg {
+                    Expr::TypeExpr(ty) => ms_ctx.current_module.resolve(ty),
+                    Expr::Ident(id) => ms_ctx.current_module.resolve_from_str(&id.name),
+                    _ => panic!("Expected type for #size_of"),
+                }
+                .expect("undefined type")
+                .ty()
+                .expect("not a type");
+
+                let i64_ty = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_from_str("i64")
+                    .unwrap();
+                let value = fbx.ins().iconst(types::I64, resolved.ty.size() as i64);
+                return Some(NodeResult::Val(MsVal::new(i64_ty.id, value)));
+            }
+            if name == "as_ref" {
+                let arg = args.first().expect("#as_ref requires an argument");
+                let res = compile_node(arg, module, fbx, ms_ctx)
+                    .expect("failed to compile argument for #as_ref");
+                let inner_ty_id = res.ty();
+                let inner_ty = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_from_type_id(inner_ty_id)
+                    .unwrap();
+
+                let ref_ty = MsType::Ref(Box::new(inner_ty.clone()), false);
+                let ref_ty_id = ms_ctx
+                    .current_module
+                    .type_registry
+                    .add_type(random_string(20), ref_ty);
+
+                match res {
+                    NodeResult::Val(val) => {
+                        return Some(NodeResult::Val(MsVal::new(ref_ty_id, val.value)))
+                    }
+                    NodeResult::Var(var) => {
+                        return Some(NodeResult::Val(MsVal::new(ref_ty_id, var.value(fbx))))
+                    }
+                    _ => todo!(),
+                }
+            }
             todo!("compiler call {}", name);
         }
         Expr::TypeExpr(_) => todo!("type expr in expression position"),
@@ -1071,8 +1207,21 @@ pub fn compile_nested_struct_access(
         .get_from_type_id(var.ty())
         .unwrap();
 
-    match var_ty {
+    match var_ty.clone() {
         MsType::Native(ms_native_type) => {
+            return var;
+        }
+        MsType::Ref(inner, _) => {
+            // Automatically dereference if it's a reference to a struct
+            if let MsType::Struct(struct_ty) = inner.as_ref() {
+                let inner_ty_id = ms_ctx
+                    .current_module
+                    .type_registry
+                    .add_type(random_string(20), MsType::Struct(struct_ty.clone()));
+                let ptr = var.value(fbx);
+                let root_val = NodeResult::Val(MsVal::new(inner_ty_id, ptr));
+                return compile_nested_struct_access(root_val, child, ms_ctx, fbx, module);
+            }
             return var;
         }
         MsType::Struct(struct_ty) => {
@@ -1148,7 +1297,13 @@ pub fn compile_statements(
 ) -> Option<Inst> {
     for stmt in statements {
         match stmt {
-            Statement::Let { mutable, name, ty: expected_type, value: ref init_expr, span: _ } => {
+            Statement::Let {
+                mutable,
+                name,
+                ty: expected_type,
+                value: ref init_expr,
+                span: _,
+            } => {
                 let var_name = name.name.as_str();
                 let mut value = compile_node(init_expr, module, fbx, ms_ctx).unwrap();
 
@@ -1182,7 +1337,10 @@ pub fn compile_statements(
                     drop_variable(&old_variable, ms_ctx, fbx, module);
                 }
             }
-            Statement::Return { value: ref node, span: _ } => {
+            Statement::Return {
+                value: ref node,
+                span: _,
+            } => {
                 let ret_inst = if let Some(ref expr) = node {
                     if let Some(var) = compile_node(expr, module, fbx, ms_ctx) {
                         let ty = ms_ctx
@@ -1235,7 +1393,10 @@ pub fn compile_statements(
                 let name = label.as_ref().map(|x| x.name.as_str());
                 return Some(ms_ctx.loop_scopes.continue_loop(name, fbx));
             }
-            Statement::Expr { expr: ref node, span: _ } => {
+            Statement::Expr {
+                expr: ref node,
+                span: _,
+            } => {
                 compile_node(node, module, fbx, ms_ctx);
             }
         }
@@ -1356,7 +1517,10 @@ impl IfElseChainBuilder {
         ms_ctx: &mut MsContext,
     ) {
         if self.else_block.is_some() {
-            let empty_block = Block { items: vec![], span: Span { start: 0, end: 0 } };
+            let empty_block = Block {
+                items: vec![],
+                span: Span { start: 0, end: 0 },
+            };
             self.else_block(&empty_block, fbx, module, ms_ctx);
         }
         fbx.switch_to_block(self.end_block);

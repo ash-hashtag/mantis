@@ -17,10 +17,10 @@ type Result[U, V] = enum {
 	Err(V)
 }
 
-type ptr[T] = i64;
+type ptr[T] = @T;
 
 type ArraySlice[T] = struct {
-    pointer ptr[T],
+    pointer @T,
     len u64
 }
 

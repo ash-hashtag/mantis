@@ -69,7 +69,7 @@ pub struct Param {
 
 /// `type Option[T] = enum { Some(T), None }`
 /// `type Vec[T] = struct { capacity u64, slice ArraySlice[T] }`
-/// `type ptr[T] = i64;`
+/// `type ptr[T] = @T;`
 #[derive(Debug, Clone)]
 pub struct TypeDef {
     pub name: TypeExpr,

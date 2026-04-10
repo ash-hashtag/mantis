@@ -2,7 +2,7 @@
 """
 Mantis compilation test runner.
 
-Compiles every .ms example from mantis/src/ and reports which ones
+Compiles every .ms example from examples/ and reports which ones
 succeed and which ones fail, along with stderr output for failures.
 """
 
@@ -55,7 +55,7 @@ def main():
     project_root = os.path.dirname(script_dir)
 
     # Find all .ms examples
-    example_dir = os.path.join(project_root, "mantis", "src")
+    example_dir = os.path.join(project_root, "examples")
     ms_files = sorted(glob.glob(os.path.join(example_dir, "*.ms")))
 
     if not ms_files:
@@ -63,7 +63,7 @@ def main():
         sys.exit(1)
 
     print(f"{Color.BOLD}Mantis Compilation Test Runner{Color.RESET}")
-    print(f"Found {len(ms_files)} example(s) in mantis/src/\n")
+    print(f"Found {len(ms_files)} example(s) in examples/\n")
     print(f"{'─' * 60}")
 
     passed = []

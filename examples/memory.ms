@@ -46,12 +46,12 @@ impl ArenaAllocator {
 impl Allocator for ArenaAllocator {
 
 
-	pub fn alloc(v T) ptr[T] {
-		let size = #sizeof(T);
+	pub fn alloc(v T) @T {
+		let size = #size_of(T);
 
 	}
 
-	pub fn dealloc(v ptr[T]) unsafe {
+	pub fn dealloc(v @T) unsafe {
 		
 	}
 }
