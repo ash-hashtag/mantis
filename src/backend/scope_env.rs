@@ -3,6 +3,63 @@ use std::collections::HashMap;
 use std::fmt;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  Struct layout metadata
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/// Description of a single field within a struct.
+#[derive(Debug, Clone)]
+pub struct StructFieldInfo {
+    /// Field name.
+    pub name: String,
+    /// Cranelift IR type of this field (e.g. `types::I64`).
+    pub cl_type: types::Type,
+    /// Byte offset from the start of the struct.
+    pub offset: u32,
+    /// If this field is itself a struct, the struct type name.
+    pub struct_type_name: Option<String>,
+}
+
+/// Layout of a struct type: ordered fields with computed offsets and total size.
+#[derive(Debug, Clone)]
+pub struct StructLayout {
+    /// Ordered list of fields.
+    pub fields: Vec<StructFieldInfo>,
+    /// Total byte size of the struct (sum of all field sizes, no padding for now).
+    pub total_size: u32,
+}
+
+impl StructLayout {
+    /// Look up a field by name.
+    pub fn get_field(&self, name: &str) -> Option<&StructFieldInfo> {
+        self.fields.iter().find(|f| f.name == name)
+    }
+}
+
+/// Registry of struct type definitions, keyed by type name.
+#[derive(Debug, Clone, Default)]
+pub struct TypeRegistry {
+    pub structs: HashMap<String, StructLayout>,
+}
+
+impl TypeRegistry {
+    pub fn new() -> Self {
+        Self {
+            structs: HashMap::new(),
+        }
+    }
+
+    /// Register a struct layout.
+    pub fn register_struct(&mut self, name: String, layout: StructLayout) {
+        self.structs.insert(name, layout);
+    }
+
+    /// Look up a struct layout by name.
+    pub fn get_struct(&self, name: &str) -> Option<&StructLayout> {
+        self.structs.get(name)
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Variable metadata
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -15,6 +72,8 @@ pub struct VarInfo {
     pub ty: types::Type,
     /// Whether the binding was declared as mutable (`mut`).
     pub is_mutable: bool,
+    /// If this variable holds a pointer to a struct, the struct type name.
+    pub struct_type_name: Option<String>,
 }
 
 impl VarInfo {
@@ -23,6 +82,21 @@ impl VarInfo {
             variable,
             ty,
             is_mutable,
+            struct_type_name: None,
+        }
+    }
+
+    /// Create a VarInfo that refers to a struct instance (pointer to stack slot).
+    pub fn new_struct(
+        variable: cranelift::frontend::Variable,
+        is_mutable: bool,
+        struct_type_name: String,
+    ) -> Self {
+        Self {
+            variable,
+            ty: types::I64, // struct variables are pointers
+            is_mutable,
+            struct_type_name: Some(struct_type_name),
         }
     }
 }
