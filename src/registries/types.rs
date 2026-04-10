@@ -13,7 +13,7 @@ use mantis_parser::ast::{self, BinOp as BinaryOperation, FnDecl as FunctionDecl,
 use crate::{backend::compile_function::random_string, native::instructions::Either};
 
 use super::{
-    functions::MsDeclaredFunction,
+    functions::{MsDeclaredFunction, MsFunctionRegistry},
     modules::MsModule,
     structs::{MsEnumType, MsStructType},
     MsRegistry, MsRegistryExt,
@@ -614,7 +614,7 @@ impl MsType {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct MsTypeId(u32);
+pub struct MsTypeId(pub u32);
 
 impl Display for MsTypeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -774,7 +774,31 @@ pub struct MsTypeTemplates {
     pub registry: HashMap<Box<str>, Rc<MsGenericTemplate>>,
 }
 
+pub trait TypeRegistryResolver {
+    fn resolve_type(&self, name: &str) -> Option<MsTypeWithId>;
+}
+
+impl TypeRegistryResolver for MsTypeNameRegistry {
+    fn resolve_type(&self, name: &str) -> Option<MsTypeWithId> {
+        self.get_from_str(name)
+    }
+}
+
 #[derive(Debug, Default)]
-pub struct MsTypeMethodFunctions {
-    pub registry: HashMap<Box<str>, HashMap<Box<str>, Rc<MsDeclaredFunction>>>, // type -> to functions
+pub struct MsTypeMethodRegistry {
+    pub map: HashMap<MsTypeId, MsFunctionRegistry>,
+}
+
+impl MsTypeMethodRegistry {
+    pub fn add_method(&mut self, type_id: MsTypeId, name: impl Into<Box<str>>, func: Rc<MsDeclaredFunction>) {
+        self.map.entry(type_id).or_default().add_function(name, func);
+    }
+
+    pub fn add_function(&mut self, type_id: MsTypeId, name: impl Into<Box<str>>, func: Rc<MsDeclaredFunction>) {
+        self.add_method(type_id, name, func);
+    }
+
+    pub fn get_method(&self, type_id: MsTypeId, name: &str) -> Option<Rc<MsDeclaredFunction>> {
+        self.map.get(&type_id)?.registry.get(name).cloned()
+    }
 }

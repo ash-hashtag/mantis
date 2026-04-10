@@ -67,47 +67,6 @@ impl MsFunctionRegistry {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct MsTraitRegistry {
-    pub registry: HashMap<Box<str>, HashMap<MsTypeId, MsFunctionRegistry>>,
-}
-
-impl MsTraitRegistry {
-    pub fn find_trait_for(
-        &self,
-        trait_name: &str,
-        type_id: MsTypeId,
-    ) -> Option<&MsFunctionRegistry> {
-        let trait_registry = self.registry.get(trait_name)?;
-        let functions = trait_registry.get(&type_id)?;
-
-        Some(functions)
-    }
-
-    pub fn add_function(
-        &mut self,
-        trait_name: &str,
-        type_id: MsTypeId,
-        func_name: Box<str>,
-        func_decl: Rc<MsDeclaredFunction>,
-    ) {
-        let registry = if let Some(types_to_fns) = self.registry.get_mut(trait_name) {
-            types_to_fns
-        } else {
-            self.registry.insert(trait_name.into(), Default::default());
-            self.registry.get_mut(trait_name).unwrap()
-        };
-
-        let registry = if let Some(fns) = registry.get_mut(&type_id) {
-            fns
-        } else {
-            registry.insert(type_id, Default::default());
-            registry.get_mut(&type_id).unwrap()
-        };
-
-        registry.add_function(func_name, func_decl);
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct MsGenericFunction {

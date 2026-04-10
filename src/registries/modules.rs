@@ -17,11 +17,13 @@ use crate::{
 use super::{
     functions::{
         MsDeclaredFunction, MsFunctionRegistry, MsFunctionTemplates, MsTraitGenericTemplates,
-        MsTraitRegistry, MsTraitTemplates,
+        MsTraitTemplates,
     },
+    traits::MsTraitRegistry,
     types::{
         EnumWithGenerics, MsGenericTemplate, MsGenericTemplateInner, MsType, MsTypeId,
         MsTypeNameRegistry, MsTypeRegistry, MsTypeTemplates, MsTypeWithId, TypeNameWithGenerics,
+        MsTypeMethodRegistry,
     },
 };
 
@@ -38,33 +40,13 @@ pub struct MsModule {
     pub trait_templates: MsTraitTemplates,
     pub type_registry: MsTypeNameRegistry,
     pub type_templates: MsTypeTemplates,
-    pub type_fn_registry: MsTypeFunctionRegistry,
+    pub type_fn_registry: MsTypeMethodRegistry,
     pub trait_generic_templates: MsTraitGenericTemplates,
     pub submodules: HashMap<Box<str>, MsModule>,
     pub aliased_types: HashMap<TypeNameWithGenerics, MsTypeWithId>,
 }
 
-#[derive(Debug, Default)]
-pub struct MsTypeFunctionRegistry {
-    pub map: HashMap<MsTypeId, MsFunctionRegistry>,
-}
-
-impl MsTypeFunctionRegistry {
-    pub fn add_function(
-        &mut self,
-        ty: MsTypeId,
-        fn_name: impl Into<Box<str>>,
-        func: Rc<MsDeclaredFunction>,
-    ) {
-        let ty = if let Some(ty) = self.map.get_mut(&ty) {
-            ty
-        } else {
-            self.map.insert(ty.clone(), Default::default());
-            self.map.get_mut(&ty).unwrap()
-        };
-        ty.add_function(fn_name, func);
-    }
-}
+// MsTypeFunctionRegistry was removed and replaced by MsTypeMethodRegistry in types.rs
 
 #[derive(Debug, Clone)]
 pub enum MsResolved {

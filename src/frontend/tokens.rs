@@ -16,10 +16,11 @@ use crate::{
     ms::MsContext,
     registries::{
         functions::{
-            FunctionType, MsFunctionRegistry, MsFunctionTemplates, MsFunctionType, MsTraitRegistry,
+            FunctionType, MsFunctionRegistry, MsFunctionTemplates, MsFunctionType,
             MsTraitTemplates,
         },
         modules::{MsModule, MsModuleRegistry},
+        traits::MsTraitRegistry,
         types::{MsNativeType, MsType, MsTypeRegistry, MsTypeTemplates},
         variable::{MsVal, MsVar, MsVarRegistry},
         MsRegistry, MsRegistryExt,

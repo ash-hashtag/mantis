@@ -6,8 +6,9 @@ use cranelift_object::ObjectModule;
 
 use crate::{
     registries::{
-        functions::{MsFunctionRegistry, MsFunctionTemplates, MsTraitRegistry, MsTraitTemplates},
+        functions::{MsFunctionRegistry, MsFunctionTemplates, MsTraitTemplates},
         modules::{MsModule, MsModuleRegistry},
+        traits::MsTraitRegistry,
         types::{MsTypeRegistry, MsTypeTemplates},
     },
     scope::{drop_scopes_until_index, MsLoopScope, MsLoopScopes, MsScopes, MsVarScopes},
