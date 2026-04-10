@@ -26,9 +26,6 @@ members =[
   "mantis_parser"
 ]
 
-[[bin]]
-name = "scratch"
-path = "src/bin/scratch.rs"
 
 [[bin]]
 name = "mantis"

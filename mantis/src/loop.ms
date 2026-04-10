@@ -1,5 +1,5 @@
 
-fn extern puts(ptr i64) i32;
+fn puts(ptr i64) i32 extern;
 
 fn main(argc i32, argv i64) i32 {
 	let i = 0;

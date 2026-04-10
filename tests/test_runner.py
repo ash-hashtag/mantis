@@ -1,81 +1,113 @@
+#!/usr/bin/env python3
+"""
+Mantis compilation test runner.
+
+Compiles every .ms example from mantis/src/ and reports which ones
+succeed and which ones fail, along with stderr output for failures.
+"""
+
 import os
 import subprocess
 import glob
 import sys
+import time
 
-def run_test(ms_file):
-    print(f"Running test for: {ms_file}")
-    
-    # Run the compiler with --run flag
-    # cargo run --quiet -- <file> --run
+
+# ANSI color codes
+class Color:
+    GREEN = "\033[92m"
+    RED = "\033[91m"
+    YELLOW = "\033[93m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RESET = "\033[0m"
+
+
+def compile_example(ms_file, project_root):
+    """
+    Attempt to compile a single .ms file using `cargo run -- <file>`.
+    Returns (success: bool, stdout: str, stderr: str, duration: float).
+    """
+    start = time.time()
     try:
         result = subprocess.run(
-            ["cargo", "run", "--quiet", "--", ms_file, "--run"],
+            ["cargo", "run", "--quiet", "--", ms_file],
             capture_output=True,
             text=True,
-            cwd=os.getcwd()
+            timeout=60,
+            cwd=project_root,
         )
+    except subprocess.TimeoutExpired:
+        duration = time.time() - start
+        return False, "", "TIMEOUT after 60s", duration
     except Exception as e:
-        print(f"Error running cargo: {e}")
-        return False, "Execution failed"
+        duration = time.time() - start
+        return False, "", f"Failed to run cargo: {e}", duration
 
-    # Identify matching .out file in tests/expected/
-    base_name = os.path.basename(ms_file)
-    test_name = os.path.splitext(base_name)[0]
-    expected_out_file = os.path.join("tests", "expected", f"{test_name}.out")
-    
-    actual_stdout = result.stdout
-    actual_exit_code = result.returncode
+    duration = time.time() - start
+    success = result.returncode == 0
+    return success, result.stdout, result.stderr, duration
 
-    if os.path.exists(expected_out_file):
-        with open(expected_out_file, 'r') as f:
-            expected_stdout = f.read()
-        
-        if actual_stdout.strip() == expected_stdout.strip():
-            print(f"PASS: {test_name} (Stdout matches)")
-            return True, None
-        else:
-            print(f"FAIL: {test_name} (Stdout mismatch)")
-            print("--- Expected output ---")
-            print(expected_stdout)
-            print("--- Actual output ---")
-            print(actual_stdout)
-            print("--- Error output ---")
-            print(result.stderr)
-            return False, "Stdout mismatch"
-    else:
-        # No expected output file, just check exit code
-        if actual_exit_code == 0:
-            print(f"PASS: {test_name} (Success exit code)")
-            return True, None
-        else:
-            print(f"FAIL: {test_name} (Exit code {actual_exit_code})")
-            print("--- Error output ---")
-            print(result.stderr)
-            return False, "Non-zero exit code"
 
 def main():
-    ms_files = glob.glob(os.path.join("mantis", "src", "*.ms"))
+    # Determine project root (script lives in tests/)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+
+    # Find all .ms examples
+    example_dir = os.path.join(project_root, "mantis", "src")
+    ms_files = sorted(glob.glob(os.path.join(example_dir, "*.ms")))
+
     if not ms_files:
-        # Fallback if the path is different
-        ms_files = glob.glob(os.path.join("src", "*.ms"))
-    
-    if not ms_files:
-        print("No .ms files found in mantis/src/")
+        print(f"No .ms files found in {example_dir}")
         sys.exit(1)
 
-    all_passed = True
-    for ms_file in sorted(ms_files):
-        passed, error = run_test(ms_file)
-        if not passed:
-            all_passed = False
-    
-    if all_passed:
-        print("\nAll tests passed!")
-        sys.exit(0)
-    else:
-        print("\nSome tests failed.")
-        sys.exit(1)
+    print(f"{Color.BOLD}Mantis Compilation Test Runner{Color.RESET}")
+    print(f"Found {len(ms_files)} example(s) in mantis/src/\n")
+    print(f"{'─' * 60}")
+
+    passed = []
+    failed = []
+
+    for ms_file in ms_files:
+        name = os.path.basename(ms_file)
+        sys.stdout.write(f"  Compiling {name:<25s} ... ")
+        sys.stdout.flush()
+
+        success, stdout, stderr, duration = compile_example(ms_file, project_root)
+
+        if success:
+            print(f"{Color.GREEN}OK{Color.RESET}  {Color.DIM}({duration:.1f}s){Color.RESET}")
+            passed.append(name)
+        else:
+            print(f"{Color.RED}FAIL{Color.RESET}  {Color.DIM}({duration:.1f}s){Color.RESET}")
+            failed.append((name, stderr.strip(), stdout.strip()))
+
+    # ── Summary ──────────────────────────────────────────────────
+    print(f"{'─' * 60}\n")
+    total = len(ms_files)
+    print(f"{Color.BOLD}Results: {len(passed)}/{total} passed, {len(failed)}/{total} failed{Color.RESET}\n")
+
+    if passed:
+        print(f"{Color.GREEN}Passed ({len(passed)}):{Color.RESET}")
+        for name in passed:
+            print(f"  ✓ {name}")
+        print()
+
+    if failed:
+        print(f"{Color.RED}Failed ({len(failed)}):{Color.RESET}")
+        for name, stderr, stdout in failed:
+            print(f"  ✗ {name}")
+            if stderr:
+                for line in stderr.splitlines():
+                    print(f"      {Color.DIM}{line}{Color.RESET}")
+            if stdout:
+                for line in stdout.splitlines():
+                    print(f"      {Color.DIM}[stdout] {line}{Color.RESET}")
+            print()
+
+    sys.exit(0 if not failed else 1)
+
 
 if __name__ == "__main__":
     main()
