@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-logos = "0.14.3"
+logos = "0.14.4"
 anyhow = "1.0.102"

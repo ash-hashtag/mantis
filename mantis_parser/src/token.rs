@@ -148,6 +148,9 @@ pub enum Token {
     #[token(">>")]
     Shr,
 
+    #[token("=>")]
+    Arrow,
+
     #[token("=")]
     Eq,
     #[token("+")]

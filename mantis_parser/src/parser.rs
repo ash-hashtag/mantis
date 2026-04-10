@@ -142,13 +142,37 @@ impl Parser {
 
     fn parse_import(&mut self) -> PResult<ImportDecl> {
         let start = self.expect(&Token::Import)?;
-        let mut path = vec![self.expect_ident()?];
-        while self.eat(&Token::Dot) {
+        
+        // Support either an identifier path or a string literal path
+        let mut path = Vec::new();
+        if let Some(Token::String(s)) = self.peek().cloned() {
+            self.advance();
+            path.push(Ident::new(s, self.prev_span()));
+        } else {
             path.push(self.expect_ident()?);
+            while self.eat(&Token::Dot) {
+                path.push(self.expect_ident()?);
+            }
         }
+
+        // Support optional 'as *' or 'as alias'
+        let mut alias = None;
+        if self.eat(&Token::As) {
+            match self.peek() {
+                Some(Token::Star) => {
+                    self.advance();
+                    alias = Some(Ident::new("*", self.prev_span()));
+                }
+                Some(Token::Ident(_)) => {
+                    alias = Some(self.expect_ident()?);
+                }
+                _ => return Err(self.error("expected '*' or identifier after 'as'".into())),
+            }
+        }
+
         self.expect(&Token::Semi)?;
         let span = start.merge(self.prev_span());
-        Ok(ImportDecl { path, span })
+        Ok(ImportDecl { path, alias, span })
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -219,6 +243,14 @@ impl Parser {
             self.eat(&Token::Semi);
         }
 
+        // Support trailing parameter/allocator list: } (allocator = GlobalAllocator)
+        let mut trailing_params = None;
+        if matches!(self.peek(), Some(Token::LParen)) {
+            self.advance();
+            trailing_params = Some(self.parse_param_list()?);
+            self.expect(&Token::RParen)?;
+        }
+
         let span = start.merge(self.prev_span());
         Ok(FnDecl {
             name,
@@ -226,17 +258,37 @@ impl Parser {
             return_type,
             body,
             is_extern,
+            trailing_params,
             span,
         })
     }
 
     fn parse_param_list(&mut self) -> PResult<Vec<Param>> {
         let mut params = Vec::new();
-        while !matches!(self.peek(), Some(Token::RParen) | None) {
+        while !matches!(self.peek(), Some(Token::RParen | Token::RBrace) | None) {
+            let mutable = self.eat(&Token::Mut);
+            // Skip 'ref' if it appears (seen in memory.ms)
+            if let Some(Token::Ident(id)) = self.peek() {
+                if id == "ref" {
+                    self.advance();
+                }
+            }
+            
             let name = self.expect_ident()?;
-            let ty = self.parse_type_name()?;
-            let span = name.span.merge(ty.span());
-            params.push(Param { name, ty, span });
+            
+            // Support default values or ignore them for now: allocator = GlobalAllocator
+            let mut ty = TypeExpr::Unknown;
+            if !matches!(self.peek(), Some(Token::Eq | Token::Comma | Token::RParen | Token::RBrace)) {
+                ty = self.parse_type_name()?;
+            }
+            
+            if self.eat(&Token::Eq) {
+                // For now just consume the expression as we don't store it in Param
+                self.parse_expr(0)?;
+            }
+
+            let span = name.span.merge(self.prev_span());
+            params.push(Param { name, mutable, ty, span });
             if !self.eat(&Token::Comma) {
                 break;
             }
@@ -544,7 +596,14 @@ impl Parser {
     fn parse_expr_stmt(&mut self) -> PResult<Statement> {
         let expr = self.parse_expr(0)?;
         let span = expr.span();
-        self.expect(&Token::Semi)?;
+        
+        // Semicolon is optional if followed by RBrace or EOF
+        if !matches!(self.peek(), Some(Token::RBrace) | None) {
+            self.expect(&Token::Semi)?;
+        } else {
+            self.eat(&Token::Semi);
+        }
+
         let span = span.merge(self.prev_span());
         Ok(Statement::Expr { expr, span })
     }
@@ -623,6 +682,12 @@ impl Parser {
         let mut arms = Vec::new();
         while !matches!(self.peek(), Some(Token::RBrace) | None) {
             let pattern = self.parse_expr(0)?;
+            
+            // Support optional Arrow (=>) or Colon (:)
+            if !self.eat(&Token::Arrow) {
+                self.eat(&Token::Colon);
+            }
+
             let body = self.parse_block()?;
             let span = pattern.span().merge(self.prev_span());
             arms.push(MatchArm {

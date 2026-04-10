@@ -30,6 +30,7 @@ pub enum Declaration {
 #[derive(Debug, Clone)]
 pub struct ImportDecl {
     pub path: Vec<Ident>,
+    pub alias: Option<Ident>,
     pub span: Span,
 }
 
@@ -52,12 +53,14 @@ pub struct FnDecl {
     pub return_type: Option<TypeExpr>,
     pub body: Option<Block>,
     pub is_extern: bool,
+    pub trailing_params: Option<Vec<Param>>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: Ident,
+    pub mutable: bool,
     pub ty: TypeExpr,
     pub span: Span,
 }
