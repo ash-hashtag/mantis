@@ -25,3 +25,11 @@ linear-map = "1.2.0"
 members =[
   "mantis_parser"
 ]
+
+[[bin]]
+name = "scratch"
+path = "src/bin/scratch.rs"
+
+[[bin]]
+name = "mantis"
+path = "src/main.rs"
