@@ -226,6 +226,9 @@ impl MsNativeType {
                 if diff < 0 {
                     return fbx.ins().ireduce(cl_type, lhs);
                 } else {
+                    if diff == 0 {
+                        return lhs;
+                    }
                     if rnty.is_uint() {
                         return fbx.ins().uextend(cl_type, lhs);
                     } else {

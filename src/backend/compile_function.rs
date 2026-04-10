@@ -483,19 +483,20 @@ pub fn compile_node(
                             let variable_name = root.as_name().unwrap();
                             let var = ms_ctx.var_scopes.find_variable(variable_name).unwrap();
                             let ptr = var.value(fbx);
-                            let final_ptr = compile_nested_struct_field_to_ptr(
+                            let final_ptr_res = compile_nested_struct_field_to_ptr(
                                 ptr, var.ty_id, child, ms_ctx, fbx,
                             );
+                            let final_ptr = final_ptr_res.value(fbx);
                             let ty = ms_ctx
                                 .current_module
                                 .type_registry
-                                .get_from_type_id(final_ptr.ty())
+                                .get_from_type_id(final_ptr_res.ty())
                                 .unwrap();
                             match ty {
                                 MsType::Struct(_) | MsType::Enum(_) | MsType::Native(_) => {
                                     let rhs = compile_node(rhs, module, fbx, ms_ctx).unwrap();
                                     compile_assignment_on_pointers(
-                                        final_ptr, rhs, module, fbx, ms_ctx,
+                                        final_ptr_res, rhs, module, fbx, ms_ctx,
                                     );
                                 }
                                 _ => unreachable!("{:?}", ty),
@@ -577,7 +578,11 @@ pub fn compile_node(
                         let rval = rhs_result.value(fbx);
                         let value =
                             compile_binary_operation(*op, lval, rval, nty, module, fbx, ms_ctx);
-                        return Some(NodeResult::Val(MsVal::new(rhs_result.ty(), value)));
+                        let mut res_ty = lhs_result.ty();
+                        if matches!(op, BinaryOperation::Gt | BinaryOperation::GtEq | BinaryOperation::Eq | BinaryOperation::NotEq | BinaryOperation::Lt | BinaryOperation::LtEq) {
+                             res_ty = ms_ctx.current_module.resolve_from_str("bool").unwrap().ty().unwrap().id;
+                        }
+                        return Some(NodeResult::Val(MsVal::new(res_ty, value)));
                     }
                     MsType::Struct(_sty) => {
                         panic!("structs can't be used with == operator");
@@ -1198,7 +1203,11 @@ pub fn compile_statements(
                                         val = fbx.ins().uextend(types::I64, val);
                                     }
                                 }
-                                fbx.ins().return_(&[val])
+                                if fbx.func.signature.returns.is_empty() {
+                                    fbx.ins().return_(&[])
+                                } else {
+                                    fbx.ins().return_(&[val])
+                                }
                             }
                             MsType::Struct(sty) => {
                                 let src = var.value(fbx);
