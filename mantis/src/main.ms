@@ -27,8 +27,8 @@ fn add(a i64, b i64) i64 {
 
 
 fn main(argc i32, argv i64) i32 {
-	let b: i64 = 7;
-	let i: i64 = argc as i64;
+	mut b: i64 = 7;
+	mut i: i64 = argc as i64;
 
 	let foo: Foo = #init(Foo); // ptr
 

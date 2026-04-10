@@ -11,12 +11,13 @@ use mantis_parser::ast::{
 };
 
 use crate::{
-    backend::compile_function::TraitFunctionFor,
+    backend::compile_function::MethodFor,
     ms::MsContext,
     registries::{
-        functions::{MsFunctionRegistry, MsGenericFunction},
+        functions::{MsFunctionRegistry, MsGenericFunction, MsDeclaredFunction, FunctionType},
         modules::{resolve_module_by_word, MsResolved},
-        types::{MsGenericTemplate, MsTypeRegistry, TypeNameWithGenerics},
+        structs::{MsStructType, MsEnumType},
+        types::{MsGenericTemplate, MsGenericTemplateInner, MsTypeRegistry, TypeNameWithGenerics, MsType},
     },
 };
 
@@ -50,6 +51,95 @@ pub fn compile_binary(
     let mut ms_ctx = MsContext::new(0);
     ms_ctx.disable_auto_drop = !auto_drop;
 
+    // Register StrSlice
+    {
+        use crate::registries::structs::{MsStructFieldValue, MsStructType};
+        use std::collections::HashMap;
+
+        let i64_ty = ms_ctx
+            .current_module
+            .type_registry
+            .get_from_str("i64")
+            .unwrap();
+
+        let mut fields = HashMap::new();
+        fields.insert(
+            "pointer".into(),
+            MsStructFieldValue {
+                offset: 0,
+                ty: i64_ty.id,
+            },
+        );
+        fields.insert(
+            "len".into(),
+            MsStructFieldValue {
+                offset: 8,
+                ty: i64_ty.id,
+            },
+        );
+        let str_slice_ty = MsStructType::new(fields, 16);
+        ms_ctx.current_module.type_registry.add_type(
+            "StrSlice",
+            MsType::Struct(Rc::new(str_slice_ty)),
+        );
+    }
+
+    // Register pointer template
+    {
+        let i64_ty = ms_ctx
+            .current_module
+            .type_registry
+            .get_from_str("i64")
+            .unwrap();
+        let template = MsGenericTemplate {
+            generics: vec!["T".into()],
+            inner_type: MsGenericTemplateInner::Type(TypeNameWithGenerics::new("i64".into(), vec![])),
+        };
+        ms_ctx
+            .current_module
+            .type_templates
+            .registry
+            .insert("pointer".into(), Rc::new(template));
+    }
+
+    // Register implicit 'malloc' and 'memcpy' if not already declared in source
+    {
+        use mantis_parser::ast::Declaration;
+        let has_decl = |name: &str| {
+            program.declarations.iter().any(|d| match d {
+                Declaration::Function(f) => f.name.as_ref().and_then(|n| n.as_name()) == Some(name),
+                _ => false,
+            })
+        };
+
+        if !has_decl("malloc") {
+            let mut malloc_sig = module.make_signature();
+            malloc_sig.params.push(AbiParam::new(types::I64).sext());
+            malloc_sig.returns.push(AbiParam::new(types::I64).sext());
+            let malloc_id = module.declare_function("malloc", Linkage::Import, &malloc_sig).unwrap();
+            ms_ctx.current_module.fn_registry.add_function("malloc", Rc::new(MsDeclaredFunction {
+                func_id: malloc_id,
+                arguments: Default::default(),
+                rets: None,
+                fn_type: FunctionType::Extern,
+            }));
+        }
+
+        if !has_decl("memcpy") {
+            let mut memcpy_sig = module.make_signature();
+            memcpy_sig.params.push(AbiParam::new(types::I64).sext()); // dest
+            memcpy_sig.params.push(AbiParam::new(types::I64).sext()); // src
+            memcpy_sig.params.push(AbiParam::new(types::I64).sext()); // size
+            let memcpy_id = module.declare_function("memcpy", Linkage::Import, &memcpy_sig).unwrap();
+            ms_ctx.current_module.fn_registry.add_function("memcpy", Rc::new(MsDeclaredFunction {
+                func_id: memcpy_id,
+                arguments: Default::default(),
+                rets: None,
+                fn_type: FunctionType::Extern,
+            }));
+        }
+    }
+
     for declaration in program.declarations {
         match declaration {
             Declaration::Function(function_decl) => {
@@ -71,7 +161,18 @@ pub fn compile_binary(
                             TypeExpr::Generic(base, generics) => {
                                 let generics = generics
                                     .iter()
-                                    .map(|x| x.as_name().unwrap().to_string())
+                                    .map(|x| {
+                                        x.as_name()
+                                            .or_else(|| {
+                                                if let mantis_parser::ast::TypeExpr::Generic(base, _) = x {
+                                                    base.as_name()
+                                                } else {
+                                                    None
+                                                }
+                                            })
+                                            .expect("generic name error")
+                                            .to_string()
+                                    })
                                     .collect::<Vec<String>>();
                                 let resolved_ty = match &typedef.definition {
                                     TypeDefBody::Alias(ty) => ty.clone(),
@@ -81,7 +182,16 @@ pub fn compile_binary(
                                 let template = Rc::new(
                                     ms_ctx.current_module.resolve_with_generics(&resolved_ty, &generics),
                                 );
-                                let key = base.as_name().unwrap();
+                                let key = base
+                                    .as_name()
+                                    .or_else(|| {
+                                        if let mantis_parser::ast::TypeExpr::Generic(b, _) = &**base {
+                                            b.as_name()
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .expect("template base name error");
                                 log::info!("template generated aliased {} -> {:?}", key, template);
                                 ms_ctx
                                     .current_module
@@ -105,9 +215,43 @@ pub fn compile_binary(
                                             todo!("add types to ms_context");
                                         }
                                     }
-                                    _ => {
-                                        // struct/enum definitions handled during resolve
-                                        todo!("struct/enum type registration");
+                                    TypeDefBody::Struct(struct_def) => {
+                                        let mut ms_struct = MsStructType::default();
+                                        for field in &struct_def.fields {
+                                            let ty = ms_ctx
+                                                .current_module
+                                                .resolve(&field.ty)
+                                                .expect(&format!("unable to resolve field type {:?}", field.ty))
+                                                .ty()
+                                                .unwrap();
+                                            ms_struct.add_field(field.name.name.as_str(), ty);
+                                        }
+                                        ms_ctx.current_module.type_registry.add_type(
+                                            alias,
+                                            MsType::Struct(Rc::new(ms_struct)),
+                                        );
+                                    }
+                                    TypeDefBody::Enum(enum_def) => {
+                                        let mut ms_enum = MsEnumType::default();
+                                        for variant in &enum_def.variants {
+                                            let ty = if !variant.fields.is_empty() {
+                                                Some(
+                                                    ms_ctx
+                                                        .current_module
+                                                        .resolve(&variant.fields[0])
+                                                        .unwrap()
+                                                        .ty()
+                                                        .unwrap(),
+                                                )
+                                            } else {
+                                                None
+                                            };
+                                            ms_enum.add_variant(variant.name.name.as_str(), ty);
+                                        }
+                                        ms_ctx.current_module.type_registry.add_type(
+                                            alias,
+                                            MsType::Enum(Rc::new(ms_enum)),
+                                        );
                                     }
                                 }
                             }
@@ -123,7 +267,18 @@ pub fn compile_binary(
                 todo!("import decl should compile the modules");
             }
             Declaration::Trait(trait_def) => {
-                let trait_name = trait_def.name.as_name().unwrap();
+                let trait_name = trait_def
+                    .name
+                    .as_name()
+                    .or_else(|| {
+                        if let mantis_parser::ast::TypeExpr::Generic(base, _) = &trait_def.name {
+                            base.as_name()
+                        } else {
+                            None
+                        }
+                    })
+                    .expect("trait name should be an identifier or generic with identifier base");
+
                 let functions = trait_def.methods;
 
                 ms_ctx
@@ -141,29 +296,50 @@ pub fn compile_binary(
             }
             Declaration::Impl(impl_block) => {
                 if impl_block.generics.is_empty() {
-                    let for_type = impl_block.for_type.as_ref().expect("impl block should have a for_type");
-                    let ty = ms_ctx.current_module.resolve(for_type).unwrap().ty().unwrap();
+                    let for_type = if let Some(ref for_ty) = impl_block.for_type {
+                        ms_ctx.current_module.resolve(for_ty).unwrap().ty().unwrap()
+                    } else {
+                        ms_ctx.current_module.resolve(&impl_block.trait_name).unwrap().ty().unwrap()
+                    };
+
                     ms_ctx
                         .current_module
-                        .add_alias(TypeNameWithGenerics::new("Self".into(), vec![]), ty.clone());
+                        .add_alias(TypeNameWithGenerics::new("Self".into(), vec![]), for_type.clone());
 
-                    let trait_name = impl_block.trait_name.as_name().unwrap();
-                    let mut fn_registry = MsFunctionRegistry::default();
+                    let trait_name = if impl_block.for_type.is_some() {
+                        Some(
+                            impl_block
+                                .trait_name
+                                .as_name()
+                                .or_else(|| {
+                                    if let mantis_parser::ast::TypeExpr::Generic(base, _) =
+                                        &impl_block.trait_name
+                                    {
+                                        base.as_name()
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .expect("impl trait name error"),
+                        )
+                    } else {
+                        None
+                    };
 
                     for function in impl_block.methods {
-                        let trait_fn_for = TraitFunctionFor {
+                        let method_for = MethodFor {
                             trait_name,
-                            on_type: &ty,
+                            on_type: &for_type,
                         };
 
                         let fn_name = random_string(24);
-                        let decl = compile_function(
+                        let _decl = compile_function(
                             function,
                             &mut module,
                             &mut ctx,
                             &mut fbx,
                             &mut ms_ctx,
-                            Some(trait_fn_for),
+                            Some(method_for),
                             Some(&fn_name),
                         );
                     }

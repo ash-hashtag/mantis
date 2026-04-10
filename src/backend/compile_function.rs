@@ -32,8 +32,8 @@ pub enum FinalType {
     CraneliftType(types::Type),
 }
 
-pub struct TraitFunctionFor<'a> {
-    pub trait_name: &'a str,
+pub struct MethodFor<'a> {
+    pub trait_name: Option<&'a str>,
     pub on_type: &'a MsTypeWithId,
 }
 
@@ -43,10 +43,21 @@ pub fn compile_function(
     ctx: &mut Context,
     fbx: &mut FunctionBuilderContext,
     ms_ctx: &mut MsContext,
-    trait_on_type: Option<TraitFunctionFor>,
+    trait_on_type: Option<MethodFor>,
     exporting_fn_name: Option<&str>,
 ) -> Rc<MsDeclaredFunction> {
-    let name = function.name.as_ref().and_then(|n| n.as_name()).unwrap();
+    let name = function
+        .name
+        .as_ref()
+        .map(|n| match n {
+            MsTokenType::Named(id) => &id.name,
+            MsTokenType::Generic(base, _) => match &**base {
+                MsTokenType::Named(id) => &id.name,
+                _ => panic!("unhandled function name type"),
+            },
+            _ => panic!("unhandled function name type"),
+        })
+        .expect("function must have a name");
     let mut linkage = Linkage::Preemptible;
     if function.is_extern {
         if function.body.is_none() {
@@ -134,16 +145,18 @@ pub fn compile_function(
         .add_function(exporting_fn_name.unwrap_or(name), declared_function.clone());
 
     if let Some(tot) = &trait_on_type {
-        ms_ctx.current_module.trait_registry.add_function(
-            tot.trait_name,
-            tot.on_type.id.clone(),
-            name.into(),
-            declared_function.clone(),
-        );
+        if let Some(trait_name) = tot.trait_name {
+            ms_ctx.current_module.trait_registry.add_function(
+                trait_name,
+                tot.on_type.id.clone(),
+                name.as_str().into(),
+                declared_function.clone(),
+            );
+        }
 
         ms_ctx.current_module.type_fn_registry.add_function(
             tot.on_type.id,
-            name,
+            name.as_str(),
             declared_function.clone(),
         );
     }
@@ -460,15 +473,7 @@ pub fn compile_node(
                 match lhs.as_ref() {
                     Expr::Ident(ident) => {
                         let variable_name = ident.name.as_str();
-                        let rhs = if let Expr::Ident(rhs_ident) = rhs.as_ref() {
-                            let var = ms_ctx
-                                .var_scopes
-                                .remove_variable(rhs_ident.name.as_str())
-                                .unwrap();
-                            NodeResult::Var(var)
-                        } else {
-                            compile_node(rhs, module, fbx, ms_ctx).unwrap()
-                        };
+                        let rhs = compile_node(rhs, module, fbx, ms_ctx).unwrap();
                         compile_assignment(variable_name, rhs, module, fbx, ms_ctx);
                     }
                     Expr::Field { object, field, .. } => {
@@ -718,13 +723,33 @@ pub fn compile_node(
                     _ => todo!(),
                 }
 
+                let mut arg_idx = 0;
                 if let Some(var) = method_on_variable {
                     call_arg_values.push(var.value(fbx));
+                    arg_idx = 1;
                 }
 
                 for arg in args {
-                    let val = compile_node(arg, module, fbx, ms_ctx).unwrap().value(fbx);
+                    let arg_val = compile_node(arg, module, fbx, ms_ctx).unwrap();
+                    let mut val = arg_val.value(fbx);
+
+                    // Auto-unwrap StrSlice to pointer if i64 is expected
+                    if let Some(&expected_ty_id) = func.arguments.values().nth(arg_idx) {
+                         let str_slice_ty = ms_ctx.current_module.type_registry.get_from_str("StrSlice").map(|t| t.id);
+                         let i64_ty_id = ms_ctx.current_module.type_registry.get_from_str("i64").map(|t| t.id);
+
+                         if Some(arg_val.ty()) == str_slice_ty && Some(expected_ty_id) == i64_ty_id {
+                             let ty = ms_ctx.current_module.type_registry.get_from_type_id(arg_val.ty()).unwrap();
+                             if let MsType::Struct(sty) = ty {
+                                 let field = sty.get_field("pointer").unwrap();
+                                 let field_addr = fbx.ins().iadd_imm(val, field.offset as i64);
+                                 val = fbx.ins().load(types::I64, MemFlags::new(), field_addr, 0);
+                             }
+                         }
+                    }
+
                     call_arg_values.push(val);
+                    arg_idx += 1;
                 }
 
                 let func_ref = module.declare_func_in_func(func.func_id, fbx.func);
@@ -739,13 +764,33 @@ pub fn compile_node(
                     return Some(NodeResult::Val(MsVal::new(fn_ret_ty, ptr)));
                 }
             } else {
+                let mut arg_idx = 0;
                 if let Some(var) = method_on_variable {
                     call_arg_values.push(var.value(fbx));
+                    arg_idx = 1;
                 }
 
                 for arg in args {
-                    let val = compile_node(arg, module, fbx, ms_ctx).unwrap().value(fbx);
+                    let arg_val = compile_node(arg, module, fbx, ms_ctx).unwrap();
+                    let mut val = arg_val.value(fbx);
+
+                    // Auto-unwrap StrSlice to pointer if i64 is expected
+                    if let Some(&expected_ty_id) = func.arguments.values().nth(arg_idx) {
+                         let str_slice_ty = ms_ctx.current_module.type_registry.get_from_str("StrSlice").map(|t| t.id);
+                         let i64_ty_id = ms_ctx.current_module.type_registry.get_from_str("i64").map(|t| t.id);
+
+                         if Some(arg_val.ty()) == str_slice_ty && Some(expected_ty_id) == i64_ty_id {
+                             let ty = ms_ctx.current_module.type_registry.get_from_type_id(arg_val.ty()).unwrap();
+                             if let MsType::Struct(sty) = ty {
+                                 let field = sty.get_field("pointer").unwrap();
+                                 let field_addr = fbx.ins().iadd_imm(val, field.offset as i64);
+                                 val = fbx.ins().load(types::I64, MemFlags::new(), field_addr, 0);
+                             }
+                         }
+                    }
+
                     call_arg_values.push(val);
+                    arg_idx += 1;
                 }
 
                 let func_ref = module.declare_func_in_func(func.func_id, fbx.func);
@@ -859,7 +904,9 @@ pub fn compile_node(
                     .declare_data(&data_name, Linkage::Preemptible, false, false)
                     .unwrap();
                 let mut data_desc = DataDescription::new();
-                data_desc.define(content.as_bytes().into());
+                let mut bytes = content.as_bytes().to_vec();
+                bytes.push(0);
+                data_desc.define(bytes.into());
                 module.define_data(data_id, &data_desc).unwrap();
                 let gl_value = module.declare_data_in_func(data_id, fbx.func);
                 fbx.ins()
@@ -941,7 +988,42 @@ pub fn compile_node(
             todo!("array init");
         }
         Expr::Lambda { decl, span } => todo!("lambda compilation"),
-        Expr::CompilerCall { name, args, span } => todo!("compiler call"),
+        Expr::CompilerCall { name, args, span } => {
+            if name == "init" {
+                let ty_expr = if let Expr::TypeExpr(ty) = args.first().unwrap() {
+                    ty
+                } else if let Expr::Ident(id) = args.first().unwrap() {
+                    // This is a bit of a hack because sometimes the parser might give an Ident
+                    &MsTokenType::Named(id.clone())
+                } else {
+                    panic!("Expected type for #init");
+                };
+
+                let resolved = ms_ctx
+                    .current_module
+                    .resolve(ty_expr)
+                    .expect("undefined type")
+                    .ty()
+                    .unwrap();
+                let MsType::Struct(sty) = &resolved.ty else {
+                    panic!("can only #init structs");
+                };
+
+                let malloc_func = ms_ctx
+                    .current_module
+                    .fn_registry
+                    .registry
+                    .get("malloc")
+                    .unwrap();
+                let malloc_ref = module.declare_func_in_func(malloc_func.func_id, fbx.func);
+                let size = fbx.ins().iconst(types::I64, sty.size() as i64);
+                let call = fbx.ins().call(malloc_ref, &[size]);
+                let res = fbx.inst_results(call)[0];
+
+                return Some(NodeResult::Val(MsVal::new(resolved.id, res)));
+            }
+            todo!("compiler call {}", name);
+        }
         Expr::TypeExpr(_) => todo!("type expr in expression position"),
         Expr::Propagate { expr, span } => todo!("propagate operator"),
     }
@@ -1106,7 +1188,16 @@ pub fn compile_statements(
 
                         match ty {
                             MsType::Native(nty) => {
-                                let val = var.value(fbx);
+                                let mut val = var.value(fbx);
+                                if !fbx.func.signature.returns.is_empty() {
+                                    let expected_ty = fbx.func.signature.returns[0].value_type;
+                                    let actual_ty = fbx.func.dfg.value_type(val);
+                                    if expected_ty == types::I32 && actual_ty == types::I64 {
+                                        val = fbx.ins().ireduce(types::I32, val);
+                                    } else if expected_ty == types::I64 && actual_ty == types::I32 {
+                                        val = fbx.ins().uextend(types::I64, val);
+                                    }
+                                }
                                 fbx.ins().return_(&[val])
                             }
                             MsType::Struct(sty) => {

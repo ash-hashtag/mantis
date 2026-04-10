@@ -40,6 +40,10 @@ pub struct MsStructType {
 }
 
 impl MsStructType {
+    pub fn new(fields: HashMap<Box<str>, MsStructFieldValue>, size: usize) -> Self {
+        Self { fields, size }
+    }
+
     pub fn size(&self) -> usize {
         self.size
     }

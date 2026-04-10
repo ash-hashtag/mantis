@@ -204,6 +204,7 @@ pub enum Token {
 
     // ── Comments (skipped) ───────────────────────────────────
     #[regex(r"//[^\n]*", logos::skip)]
+    #[regex(r"/\*([^*]|\*[^/])*\*/", logos::skip)]
     Comment,
 }
 

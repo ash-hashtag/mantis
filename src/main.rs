@@ -118,9 +118,11 @@ fn handle0(args: Args) {
 
     {
         let start = std::time::Instant::now();
-        let bytes = backend::simple::compile_binary(
+        let bytes = backend::compile::compile_binary(
             declarations,
+            vec![], // include_dirs
             &args.module_name,
+            args.auto_drop,
         )
         .unwrap();
         let seconds = start.elapsed().as_secs_f64();

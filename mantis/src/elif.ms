@@ -1,7 +1,7 @@
 fn puts(ptr i64) i32 extern;
 
 fn main(argv i32, argc i64) i32 {
-	let a = 10;
+	mut a = 10;
 
 	let c = argv as i64;
 

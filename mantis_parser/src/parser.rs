@@ -452,7 +452,14 @@ impl Parser {
         }
 
         // Base: identifier
-        let ident = self.expect_ident()?;
+        let ident = if let Some(Token::CompilerFn(name)) = self.peek() {
+            let span = self.peek_span();
+            let name = format!("#{}", name);
+            self.advance();
+            Ident::new(&name, span)
+        } else {
+            self.expect_ident()?
+        };
         let mut ty = TypeExpr::Named(ident);
 
         // Handle dot-separated nested types: std.net.IpAddr
@@ -538,6 +545,7 @@ impl Parser {
 
         // Optional type annotation (identifier that isn't `=`)
         let ty = if !matches!(self.peek(), Some(Token::Eq)) {
+            self.eat(&Token::Colon);
             Some(self.parse_type_name()?)
         } else {
             None
@@ -689,6 +697,7 @@ impl Parser {
             }
 
             let body = self.parse_block()?;
+            self.eat(&Token::Comma);
             let span = pattern.span().merge(self.prev_span());
             arms.push(MatchArm {
                 pattern,
