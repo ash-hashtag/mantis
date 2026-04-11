@@ -1,5 +1,6 @@
 We are migrating and restructuring our codebase, you have creative freedom, to take reference and reimplement any structures.
 
+mut variable refers to mutable variable
 
 &variable refers to variable's address (getting a pointer/reference)
 
