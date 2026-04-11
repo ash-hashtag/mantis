@@ -3,7 +3,7 @@ use cranelift_module::{DataDescription, FuncOrDataId, Linkage, Module};
 use cranelift_object::ObjectModule;
 
 use crate::registries::{
-    types::{MsType, MsTypeId},
+    types::{MsType, MsTypeId, MsTypeWithId},
     variable::{MsVal, MsVar},
 };
 
@@ -22,6 +22,8 @@ pub enum NodeResult {
         offset: usize,
         ty_id: MsTypeId,
     },
+    EnumUnwrap(MsTypeWithId, Box<str>),
+    TypeRef(MsTypeWithId),
 }
 
 impl NodeResult {
@@ -43,6 +45,8 @@ impl NodeResult {
                 let addr = fbx.ins().iadd_imm(*ptr, *offset as i64);
                 fbx.ins().load(cl_ty, MemFlags::new(), addr, 0)
             }
+            NodeResult::EnumUnwrap(_, _) => panic!("Cannot get value of an EnumUnwrap NodeResult"),
+            NodeResult::TypeRef(_) => panic!("Cannot get value of a TypeRef NodeResult"),
         }
     }
 
@@ -51,6 +55,29 @@ impl NodeResult {
             NodeResult::Val(val) => val.ty_id,
             NodeResult::Var(var) => var.ty_id,
             NodeResult::StructAccessVar { ty_id, .. } => *ty_id,
+            NodeResult::EnumUnwrap(ty, _) => ty.id,
+            NodeResult::TypeRef(ty) => ty.id,
+        }
+    }
+
+    pub fn address(&self, fbx: &mut FunctionBuilder, _ms_ctx: &crate::ms::MsContext) -> Value {
+        match self {
+            NodeResult::Var(var) => {
+                if let Some(ss) = var.stack_slot {
+                    fbx.ins().stack_addr(types::I64, ss, 0)
+                } else {
+                    fbx.use_var(var.c_var)
+                }
+            }
+            NodeResult::StructAccessVar {
+                ptr,
+                offset,
+                ..
+            } => {
+                fbx.ins().iadd_imm(*ptr, (*offset) as i64)
+            }
+            NodeResult::Val(val) => val.value,
+            _ => panic!("Cannot get address of an NodeResult: {:?}", self),
         }
     }
 

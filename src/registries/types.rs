@@ -291,7 +291,7 @@ fn binary_cmp_op_to_condcode_fcc(op: BinaryOperation) -> condcodes::FloatCC {
         BinaryOperation::Eq => FloatCC::Equal,
         BinaryOperation::NotEq => FloatCC::NotEqual,
         BinaryOperation::Lt => FloatCC::LessThan,
-        BinaryOperation::LtEq => FloatCC::GreaterThanOrEqual,
+        BinaryOperation::LtEq => FloatCC::LessThanOrEqual,
         _ => unreachable!(),
     }
 }
@@ -305,7 +305,7 @@ pub fn binary_cmp_op_to_condcode_intcc(op: BinaryOperation, signed: bool) -> con
             BinaryOperation::Eq => IntCC::Equal,
             BinaryOperation::NotEq => IntCC::NotEqual,
             BinaryOperation::Lt => IntCC::SignedLessThan,
-            BinaryOperation::LtEq => IntCC::SignedGreaterThanOrEqual,
+            BinaryOperation::LtEq => IntCC::SignedLessThanOrEqual,
             _ => unreachable!(),
         }
     } else {
@@ -315,7 +315,7 @@ pub fn binary_cmp_op_to_condcode_intcc(op: BinaryOperation, signed: bool) -> con
             BinaryOperation::Eq => IntCC::Equal,
             BinaryOperation::NotEq => IntCC::NotEqual,
             BinaryOperation::Lt => IntCC::UnsignedLessThan,
-            BinaryOperation::LtEq => IntCC::UnsignedGreaterThanOrEqual,
+            BinaryOperation::LtEq => IntCC::UnsignedLessThanOrEqual,
             _ => unreachable!(),
         }
     }
@@ -616,6 +616,7 @@ impl MsType {
                 log::warn!("using hardcoded ref(pointer) size of 8 bytes");
                 8
             }
+            MsType::Enum(ety) => ety.max_variant_size() + 8,
             _ => todo!(),
         }
     }
@@ -625,6 +626,7 @@ impl MsType {
             MsType::Native(ty) => ty.align(),
             MsType::Struct(ty) => ty.align(),
             MsType::Ref(_, _) => 8,
+            MsType::Enum(_) => 8,
             _ => todo!(),
         }
     }
@@ -634,6 +636,7 @@ impl MsType {
             MsType::Native(ty) => ty.to_abi_param(),
             MsType::Struct(ty) => Some(ty.to_abi_param()),
             MsType::Ref(_, _) => Some(AbiParam::new(types::I64)),
+            MsType::Enum(ty) => Some(ty.to_abi_param()),
             _ => todo!(),
         }
     }
@@ -643,6 +646,7 @@ impl MsType {
             MsType::Native(ty) => ty.to_cl_type(),
             MsType::Ref(ty, _) => Some(types::I64),
             MsType::Struct(_) => Some(types::I64),
+            MsType::Enum(ty) => Some(ty.to_cl_type()),
             _ => todo!(),
         }
     }
@@ -692,6 +696,22 @@ impl MsTypeNameRegistry {
     pub fn get_from_type_id(&self, id: MsTypeId) -> Option<MsType> {
         self.inner_map.get(&id).cloned()
         // self.inner.get(id.0).cloned()
+    }
+
+    pub fn get_id_from_type(&self, ty: &MsType) -> Option<MsTypeId> {
+        for (id, t) in self.inner_map.iter() {
+            if t == ty {
+                return Some(*id);
+            }
+        }
+        None
+    }
+
+    pub fn get_or_add_type(&mut self, ty: MsType) -> MsTypeId {
+        if let Some(id) = self.get_id_from_type(&ty) {
+            return id;
+        }
+        self.add_type(crate::backend::compile_function::random_string(20), ty)
     }
 
     pub fn get_type_id(&self, s: &str) -> Option<MsTypeId> {

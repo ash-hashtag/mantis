@@ -269,6 +269,10 @@ pub struct MsEnumType {
 }
 
 impl MsEnumType {
+    pub fn max_variant_size(&self) -> usize {
+        self.max_variant_size
+    }
+
     pub fn create_stack_slot(&mut self, fbx: &mut FunctionBuilder) -> StackSlot {
         fbx.create_sized_stack_slot(StackSlotData::new(
             cranelift::prelude::StackSlotKind::ExplicitSlot,

@@ -17,8 +17,8 @@ use linear_map::LinearMap;
 use logos::Source;
 use mantis_parser::ast::{
     BinOp as BinaryOperation, Block, BlockItem, ConditionalBlock, Expr, FieldInit, FnDecl,
-    Ident as WordSpan, IfChain as IfElseChain, LoopBlock, Statement, TypeExpr as MsTokenType,
-    UnaryOp,
+    Ident as WordSpan, IfChain as IfElseChain, LoopBlock, MatchArm, MatchBlock, Statement,
+    TypeExpr as MsTokenType, UnaryOp,
 };
 use mantis_parser::token::Span;
 use rand::Rng;
@@ -113,13 +113,17 @@ pub fn compile_function(
     };
 
     let mut fn_arguments = LinearMap::<Box<str>, MsTypeId>::with_capacity(function.params.len());
-    for param in &function.params {
-        let ty = ms_ctx
-            .current_module
-            .resolve(&param.ty)
-            .unwrap()
-            .ty()
-            .unwrap();
+    for (i, param) in function.params.iter().enumerate() {
+        let ty = if let (Some(ref trait_on_type), "self") = (&trait_on_type, param.name.name.as_str()) {
+            trait_on_type.on_type.clone()
+        } else {
+            ms_ctx
+                .current_module
+                .resolve(&param.ty)
+                .expect(&format!("failed to resolve type for parameter {} of function {}", param.name.name, name))
+                .ty()
+                .unwrap()
+        };
 
         ctx.func
             .signature
@@ -219,7 +223,19 @@ pub fn compile_function(
         if compile_block(body, module, &mut f, ms_ctx).is_none() {
             let scope = ms_ctx.var_scopes.exit_scope().unwrap();
             drop_scope(&scope, ms_ctx, &mut f, module);
-            f.ins().return_(&[]);
+            if f.func.signature.returns.is_empty() {
+                f.ins().return_(&[]);
+            } else {
+                let ret_ty = f.func.signature.returns[0].value_type;
+                let val = if ret_ty.is_int() {
+                    f.ins().iconst(ret_ty, 0)
+                } else if ret_ty.is_float() {
+                    f.ins().f64const(0.0)
+                } else {
+                    unreachable!("Unsupported return type for dummy return")
+                };
+                f.ins().return_(&[val]);
+            }
         }
     }
     f.seal_block(entry_block);
@@ -252,7 +268,9 @@ pub fn compile_block(
             BlockItem::Loop(loop_block) => {
                 compile_loop(loop_block, module, fbx, ms_ctx);
             }
-            BlockItem::Match(_match_block) => todo!("match cases unimplemented"),
+            BlockItem::Match(match_block) => {
+                compile_match_block(match_block, module, fbx, ms_ctx);
+            }
             BlockItem::Block(inner_block) => {
                 ms_ctx.var_scopes.new_scope();
                 compile_block(inner_block, module, fbx, ms_ctx);
@@ -377,21 +395,28 @@ pub fn compile_assignment_on_pointers(
     match ty {
         MsType::Native(nty) => {
             let value = rhs.value(fbx, ms_ctx);
-            let ptr = lhs.value(fbx, ms_ctx);
+            let ptr = lhs.address(fbx, ms_ctx);
             fbx.ins().store(MemFlags::new(), value, ptr, 0);
         }
         MsType::Struct(sty) => {
-            let dest = lhs.value(fbx, ms_ctx);
+            let dest = lhs.address(fbx, ms_ctx);
             let src = rhs.value(fbx, ms_ctx);
             sty.copy(dest, src, fbx, module, ms_ctx);
         }
         MsType::Enum(ety) => {
-            let dest = lhs.value(fbx, ms_ctx);
-            let src = rhs.value(fbx, ms_ctx);
-            ety.copy(dest, src, fbx, module, ms_ctx);
+            let dest = lhs.address(fbx, ms_ctx);
+            match rhs {
+                NodeResult::EnumUnwrap(_, variant_name) => {
+                    ety.set_variant(dest, &variant_name, None, fbx, ms_ctx, module);
+                }
+                _ => {
+                    let src = rhs.value(fbx, ms_ctx);
+                    ety.copy(dest, src, fbx, module, ms_ctx);
+                }
+            }
         }
         MsType::Ref(_, _) => {
-            let ptr = lhs.value(fbx, ms_ctx);
+            let ptr = lhs.address(fbx, ms_ctx);
             let value = rhs.value(fbx, ms_ctx);
             fbx.ins().store(MemFlags::new(), value, ptr, 0);
         }
@@ -534,43 +559,10 @@ pub fn compile_node(
                         let rhs = compile_node(rhs, module, fbx, ms_ctx).unwrap();
                         compile_assignment(variable_name, rhs, module, fbx, ms_ctx);
                     }
-                    Expr::Field { object, field, .. } => {
-                        // Nested struct field assignment
-                        let type_expr = field_access_to_type_expr(lhs);
-                        if let MsTokenType::Nested(root, child) = &type_expr {
-                            let variable_name = root.as_name().unwrap();
-                            let var = ms_ctx.var_scopes.find_variable(variable_name).unwrap();
-                            let ptr = var.value(fbx, ms_ctx);
-                            let final_ptr_res = compile_nested_struct_field_to_ptr(
-                                ptr, var.ty_id, child, ms_ctx, fbx,
-                            );
-                            let final_ptr = final_ptr_res.value(fbx, ms_ctx);
-                            let ty = ms_ctx
-                                .current_module
-                                .type_registry
-                                .get_from_type_id(final_ptr_res.ty())
-                                .unwrap();
-                            match ty {
-                                MsType::Struct(_)
-                                | MsType::Enum(_)
-                                | MsType::Native(_)
-                                | MsType::Ref(_, _) => {
-                                    let rhs = compile_node(rhs, module, fbx, ms_ctx).unwrap();
-                                    compile_assignment_on_pointers(
-                                        final_ptr_res,
-                                        rhs,
-                                        module,
-                                        fbx,
-                                        ms_ctx,
-                                    );
-                                }
-                                _ => unreachable!("{:?}", ty),
-                            }
-                        } else if let MsTokenType::Named(ident) = &type_expr {
-                            let variable_name = ident.name.as_str();
-                            let rhs_val = compile_node(rhs, module, fbx, ms_ctx).unwrap();
-                            compile_assignment(variable_name, rhs_val, module, fbx, ms_ctx);
-                        }
+                    Expr::Field { .. } | Expr::Unary { op: UnaryOp::Deref, .. } => {
+                        let lhs_node = compile_node(lhs, module, fbx, ms_ctx).unwrap();
+                        let rhs_node = compile_node(rhs, module, fbx, ms_ctx).unwrap();
+                        compile_assignment_on_pointers(lhs_node, rhs_node, module, fbx, ms_ctx);
                     }
                     Expr::Call { callee, args, .. } => {
                         let lhs_result = compile_node(lhs, module, fbx, ms_ctx).unwrap();
@@ -761,14 +753,14 @@ pub fn compile_node(
                             let inner_ty_id = ms_ctx
                                 .current_module
                                 .type_registry
-                                .add_type(random_string(20), inner.as_ref().clone());
+                                .get_or_add_type(inner.as_ref().clone());
                             return Some(NodeResult::Val(MsVal::new(inner_ty_id, val)));
                         }
                         _ => {
                             let inner_ty_id = ms_ctx
                                 .current_module
                                 .type_registry
-                                .add_type(random_string(20), inner.as_ref().clone());
+                                .get_or_add_type(inner.as_ref().clone());
                             return Some(NodeResult::Val(MsVal::new(inner_ty_id, ptr_value)));
                         }
                     },
@@ -798,7 +790,7 @@ pub fn compile_node(
                     let ref_ty_id = ms_ctx
                         .current_module
                         .type_registry
-                        .add_type(random_string(20), ref_ty);
+                        .get_or_add_type(ref_ty);
                     return Some(NodeResult::Val(MsVal::new(ref_ty_id, ptr)));
                 }
                 _ => todo!("address-of only implemented for identifiers"),
@@ -823,12 +815,38 @@ pub fn compile_node(
                     unreachable!()
                 };
                 let method_name = child.as_name().unwrap();
-                let reg = ms_ctx
+                let mut current_ty_id = var.ty_id;
+                let mut type_entry = ms_ctx
                     .current_module
                     .type_fn_registry
                     .map
-                    .get(&var.ty_id)
-                    .expect("type has no methods");
+                    .get(&current_ty_id);
+
+                if type_entry.is_none() {
+                    let ty = ms_ctx
+                        .current_module
+                        .type_registry
+                        .get_from_type_id(current_ty_id)
+                        .unwrap();
+                    if let MsType::Ref(inner, _) = ty {
+                        if let Some(inner_id) = ms_ctx
+                            .current_module
+                            .type_registry
+                            .get_id_from_type(&inner)
+                        {
+                            current_ty_id = inner_id;
+                            type_entry = ms_ctx.current_module.type_fn_registry.map.get(&current_ty_id);
+                        }
+                    }
+                }
+
+                if type_entry.is_none() {
+                    panic!(
+                        "type {:?} has no methods. Method name: {}",
+                        var.ty_id, method_name
+                    );
+                }
+                let reg = type_entry.unwrap();
                 let func = reg.registry.get(method_name).expect("method not found");
                 method_on_variable = Some(var.clone());
                 func.clone()
@@ -839,20 +857,24 @@ pub fn compile_node(
                     .expect(&format!("couldn't find function {:?}", fn_type_expr))
                 {
                     MsResolved::Function(func) => func,
-                    MsResolved::EnumUnwrap(enum_ty, variant_name) => {
-                        let MsType::Enum(enum_ty) = enum_ty.ty else {
-                            unreachable!()
+                    MsResolved::EnumUnwrap(enum_ty_with_id, variant_name) => {
+                        let enum_ty = match &enum_ty_with_id.ty {
+                            MsType::Enum(e) => e,
+                            _ => unreachable!(),
                         };
                         assert!(args.len() == 1);
-                        let variant_type = enum_ty.get_inner_ty(&variant_name).unwrap();
                         let arg = args.first().unwrap();
-                        if let Expr::Ident(_var_ident) = arg {
-                            let _res_var = fbx.declare_var(variant_type.ty.to_cl_type().unwrap());
-                            todo!("either move this enum unwrapping to assignment handling");
-                        } else {
-                            unreachable!();
-                        }
-                        return None;
+                        let arg_res = compile_node(arg, module, fbx, ms_ctx).unwrap();
+
+                        let slot = fbx.create_sized_stack_slot(StackSlotData::new(
+                            StackSlotKind::ExplicitSlot,
+                            MsType::Enum(enum_ty.clone()).size() as u32,
+                            0,
+                        ));
+                        let ptr = fbx.ins().stack_addr(types::I64, slot, 0);
+                        enum_ty.set_variant(ptr, &variant_name, Some(arg_res), fbx, ms_ctx, module);
+
+                        return Some(NodeResult::Val(MsVal::new(enum_ty_with_id.id, ptr)));
                     }
                     MsResolved::GenericFunctionInstantiation(template, real_types) => {
                         let instantiation_name = format!("{:?}", fn_type_expr);
@@ -1096,6 +1118,13 @@ pub fn compile_node(
             let var_name = ident.name.as_str();
             if let Some(var) = ms_ctx.var_scopes.find_variable(var_name) {
                 return Some(NodeResult::Var(var.clone()));
+            } else if let Some(ty) = ms_ctx.current_module.type_registry.get_from_str(var_name) {
+                return Some(NodeResult::TypeRef(ty.clone()));
+            } else if let Some(template) = ms_ctx.current_module.type_templates.registry.get(var_name) {
+                // If it's a template, we don't have a concrete type yet, but we can still return a TypeRef with a dummy id if needed?
+                // Actually, EnumUnwrap might handle it.
+                 // For now, let's just return a placeholder or handle it in Field access.
+                 panic!("Template access not fully implemented for ident {}", var_name);
             } else {
                 panic!("undefined {} word or type name in current scope", var_name,);
             }
@@ -1303,7 +1332,7 @@ pub fn compile_node(
                 let res = fbx.inst_results(call)[0];
 
                 let ptr_ty = MsType::Ref(Box::new(resolved.ty.clone()), true);
-                let ptr_ty_id = ms_ctx.current_module.type_registry.add_type(random_string(20), ptr_ty);
+                let ptr_ty_id = ms_ctx.current_module.type_registry.get_or_add_type(ptr_ty);
 
                 return Some(NodeResult::Val(MsVal::new(ptr_ty_id, res)));
             }
@@ -1346,7 +1375,7 @@ pub fn compile_node(
                 let ref_ty_id = ms_ctx
                     .current_module
                     .type_registry
-                    .add_type(random_string(20), ref_ty);
+                    .get_or_add_type(ref_ty);
 
                 return Some(NodeResult::Val(MsVal::new(ref_ty_id, res.value(fbx, ms_ctx))));
             }
@@ -1368,7 +1397,7 @@ pub fn compile_node(
                 let ptr_ty_id = ms_ctx
                     .current_module
                     .type_registry
-                    .add_type(random_string(20), ptr_ty);
+                    .get_or_add_type(ptr_ty);
 
                 return Some(NodeResult::Val(MsVal::new(ptr_ty_id, res.value(fbx, ms_ctx))));
             }
@@ -1387,9 +1416,63 @@ pub fn compile_node(
                 fbx.ins().call(free_ref, &[ptr]);
                 return None;
             }
+            if name == "malloc" {
+                let arg = args.first().expect("#malloc requires an argument");
+                let res = compile_node(arg, module, fbx, ms_ctx)
+                    .expect("failed to compile argument for #malloc");
+                let malloc_func = ms_ctx
+                    .current_module
+                    .fn_registry
+                    .registry
+                    .get("malloc")
+                    .expect("malloc function not defined");
+                let malloc_ref = module.declare_func_in_func(malloc_func.func_id, fbx.func);
+                let size = res.value(fbx, ms_ctx);
+                let inst = fbx.ins().call(malloc_ref, &[size]);
+                let ptr = fbx.inst_results(inst)[0];
+                let u8_ty = ms_ctx.current_module.type_registry.get_from_str("u8").unwrap();
+                let ptr_ty = MsType::Ref(Box::new(u8_ty.ty.clone()), true);
+                let ptr_ty_id = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_or_add_type(ptr_ty);
+                return Some(NodeResult::Val(MsVal::new(ptr_ty_id, ptr)));
+            }
+            if name == "size_of" {
+                let arg = args.first().expect("#size_of requires an argument");
+                let ty = match arg {
+                    Expr::TypeExpr(t) => ms_ctx
+                        .current_module
+                        .resolve(t)
+                        .expect("failed to resolve type for #size_of")
+                        .ty()
+                        .unwrap(),
+                    _ => panic!("Expected type expression in #size_of"),
+                };
+                let size = ty.ty.size();
+                let i64_ty = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_from_str("i64")
+                    .unwrap();
+                let val = fbx.ins().iconst(types::I64, size as i64);
+                return Some(NodeResult::Val(MsVal::new(i64_ty.id, val)));
+            }
             todo!("compiler call {}", name);
         }
-        Expr::TypeExpr(_) => todo!("type expr in expression position"),
+        Expr::TypeExpr(ty) => {
+            let resolved = ms_ctx
+                .current_module
+                .resolve(ty)
+                .expect("Unresolved type expression");
+            match resolved {
+                MsResolved::Type(ty_with_id) => return Some(NodeResult::TypeRef(ty_with_id)),
+                MsResolved::EnumUnwrap(ty, variant) => {
+                    return Some(NodeResult::EnumUnwrap(ty, variant))
+                }
+                _ => todo!("Handle other resolved types in TypeExpr: {:?}", resolved),
+            }
+        }
         Expr::Propagate { expr, span } => todo!("propagate operator"),
     }
 
@@ -1426,6 +1509,22 @@ pub fn compile_nested_struct_access(
     // if let Some(var) = ms_ctx.var_scopes.find_variable(&var_name).cloned() {
 
     let var = root;
+    
+    if let NodeResult::TypeRef(ty) = &var {
+        let ty_val = ms_ctx
+            .current_module
+            .type_registry
+            .get_from_type_id(ty.id)
+            .unwrap();
+        match ty_val {
+            MsType::Enum(_) => {
+                let variant_name = child.as_name().unwrap();
+                return NodeResult::EnumUnwrap(ty.clone(), variant_name.into());
+            }
+            _ => todo!("static access on non-enum type {:?}", ty_val),
+        }
+    }
+
     let var_ty = ms_ctx
         .current_module
         .type_registry
@@ -1442,7 +1541,7 @@ pub fn compile_nested_struct_access(
                 let inner_ty_id = ms_ctx
                     .current_module
                     .type_registry
-                    .add_type(random_string(20), MsType::Struct(struct_ty.clone()));
+                    .get_or_add_type(MsType::Struct(struct_ty.clone()));
                 let ptr = var.value(fbx, ms_ctx);
                 let root_val = NodeResult::Val(MsVal::new(inner_ty_id, ptr));
                 return compile_nested_struct_access(root_val, child, ms_ctx, fbx, module);
@@ -1494,6 +1593,7 @@ pub fn compile_nested_struct_access(
                                 ty_id: target_ty_id,
                             };
                         }
+                        _ => todo!(),
                     }
                 }
                 MsTokenType::Nested(parent_ty, child_ty) => {
@@ -1519,6 +1619,7 @@ pub fn compile_nested_struct_access(
                             offset: old_offset,
                             ..
                         } => fbx.ins().iadd_imm(ptr, old_offset as i64),
+                        _ => todo!(),
                     };
 
                     let field_ptr = fbx.ins().iadd_imm(root_ptr, offset as i64);
@@ -1692,6 +1793,20 @@ pub fn compile_statements(
                                 } else {
                                     fbx.ins().return_(&[])
                                 }
+                            }
+                            MsType::Enum(ety) => {
+                                let dest = ms_ctx.var_scopes.find_variable("return").unwrap().c_var;
+                                let dest = fbx.use_var(dest);
+                                match var {
+                                    NodeResult::EnumUnwrap(_, variant_name) => {
+                                        ety.set_variant(dest, &variant_name, None, fbx, ms_ctx, module);
+                                    }
+                                    _ => {
+                                        let src = var.value(fbx, ms_ctx);
+                                        ety.copy(dest, src, fbx, module, ms_ctx);
+                                    }
+                                }
+                                fbx.ins().return_(&[])
                             }
                             _ => todo!(),
                         }
@@ -1879,6 +1994,185 @@ pub fn random_string_into(len: usize, mut w: impl Write) {
     w.write_fmt(format_args!("blk_{}", count)).unwrap();
 }
 
+pub fn compile_match_block(
+    match_block: &MatchBlock,
+    module: &mut ObjectModule,
+    fbx: &mut FunctionBuilder,
+    ms_ctx: &mut MsContext,
+) {
+    let scrutinee_res = compile_node(&match_block.scrutinee, module, fbx, ms_ctx).unwrap();
+    let scrutinee_val = scrutinee_res.value(fbx, ms_ctx);
+    let scrutinee_ty_id = scrutinee_res.ty();
+    
+    let end_block = fbx.create_block();
+    
+    let mut arms = match_block.arms.iter().peekable();
+    let mut next_arm_test_block = fbx.create_block();
+    fbx.ins().jump(next_arm_test_block, &[]);
+
+    while let Some(arm) = arms.next() {
+        let current_arm_test_block = next_arm_test_block;
+        next_arm_test_block = fbx.create_block();
+        let body_block = fbx.create_block();
+        
+        fbx.switch_to_block(current_arm_test_block);
+        
+        match &arm.pattern {
+            Expr::Ident(id) if id.name == "_" => {
+                fbx.ins().jump(body_block, &[]);
+            }
+            _ => {
+                let pattern_node = &arm.pattern;
+                let pattern_res = match pattern_node {
+                    Expr::Call { callee, .. } => {
+                        let ty_expr = expr_to_type_expr(callee);
+                        if let Some(MsResolved::EnumUnwrap(ty, variant)) =
+                            ms_ctx.current_module.resolve(&ty_expr)
+                        {
+                            NodeResult::EnumUnwrap(ty, variant)
+                        } else {
+                            compile_node(pattern_node, module, fbx, ms_ctx).unwrap()
+                        }
+                    }
+                    _ => compile_node(pattern_node, module, fbx, ms_ctx).unwrap(),
+                };
+
+                let is_match = match pattern_res {
+                    NodeResult::EnumUnwrap(enum_ty, variant_name) => {
+                        let enum_inner = match &enum_ty.ty {
+                            MsType::Enum(e) => e,
+                            _ => panic!("Expected enum type"),
+                        };
+                        let tag_idx = enum_inner
+                            .get_tag_index(&variant_name)
+                            .expect("Unknown variant");
+                        let tag = enum_inner.get_tag(scrutinee_val, fbx);
+                        fbx.ins().icmp_imm(IntCC::Equal, tag, tag_idx as i64)
+                    }
+                    _ => {
+                        let pattern_val = pattern_res.value(fbx, ms_ctx);
+                        compile_comparison_for_match(
+                            scrutinee_ty_id,
+                            scrutinee_val,
+                            pattern_val,
+                            fbx,
+                            module,
+                            ms_ctx,
+                        )
+                    }
+                };
+
+                fbx.ins()
+                    .brif(is_match, body_block, &[], next_arm_test_block, &[]);
+            }
+        }
+        fbx.seal_block(current_arm_test_block);
+
+        fbx.switch_to_block(body_block);
+        ms_ctx.var_scopes.new_scope();
+
+        // Handle pattern bindings
+        if let Expr::Call { args, callee, .. } = &arm.pattern {
+            let ty_expr = expr_to_type_expr(callee);
+            if let Some(MsResolved::EnumUnwrap(enum_ty, variant_name)) =
+                ms_ctx.current_module.resolve(&ty_expr)
+            {
+                if let MsType::Enum(enum_inner) = &enum_ty.ty {
+                    if let Some(arg) = args.first() {
+                        if let Expr::Ident(var_id) = arg {
+                            let name = var_id.name.as_str();
+                            if name != "_" {
+                                // Extract value from enum
+                                let variant_ty = enum_inner.get_inner_ty(&variant_name).unwrap();
+                                let data_ptr = fbx.ins().iadd_imm(scrutinee_val, 8); // Offset of data
+                                let val = fbx.ins().load(
+                                    variant_ty.ty.to_cl_type().unwrap(),
+                                    MemFlags::new(),
+                                    data_ptr,
+                                    0,
+                                );
+                                let c_var = fbx.declare_var(variant_ty.ty.to_cl_type().unwrap());
+                                fbx.def_var(c_var, val);
+                                ms_ctx.var_scopes.add_variable(
+                                    name,
+                                    MsVar::new(variant_ty.id, c_var, None, true, false),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let inst = compile_block(&arm.body, module, fbx, ms_ctx);
+        let scope = ms_ctx.var_scopes.exit_scope().unwrap();
+        drop_scope(&scope, ms_ctx, fbx, module);
+        if inst.is_none() {
+            fbx.ins().jump(end_block, &[]);
+        }
+        fbx.seal_block(body_block);
+    }
+    
+    fbx.switch_to_block(next_arm_test_block);
+    fbx.ins().jump(end_block, &[]);
+    fbx.seal_block(next_arm_test_block);
+    
+    fbx.switch_to_block(end_block);
+    fbx.seal_block(end_block);
+}
+
+fn compile_comparison_for_match(
+    ty_id: MsTypeId,
+    lhs: Value,
+    rhs: Value,
+    fbx: &mut FunctionBuilder,
+    module: &mut ObjectModule,
+    ms_ctx: &mut MsContext,
+) -> Value {
+    let ty = ms_ctx.current_module.type_registry.get_from_type_id(ty_id).unwrap();
+    match ty {
+        MsType::Native(nty) => {
+            nty.compare(BinaryOperation::Eq, lhs, rhs, fbx)
+        }
+        MsType::Struct(_sty) => {
+            // Check if it's StrSlice
+            let str_slice_ty = ms_ctx.current_module.type_registry.get_from_str("StrSlice");
+            if let Some(ss_ty) = str_slice_ty {
+                if ss_ty.id == ty_id {
+                    let len_field_offset = 8;
+                    let ptr_field_offset = 0;
+                    
+                    let l_len_addr = fbx.ins().iadd_imm(lhs, len_field_offset);
+                    let l_len = fbx.ins().load(types::I64, MemFlags::new(), l_len_addr, 0);
+                    
+                    let r_len_addr = fbx.ins().iadd_imm(rhs, len_field_offset);
+                    let r_len = fbx.ins().load(types::I64, MemFlags::new(), r_len_addr, 0);
+                    
+                    let len_eq = fbx.ins().icmp(IntCC::Equal, l_len, r_len);
+                    
+                    let zero = fbx.ins().iconst(types::I64, 0);
+                    let memcmp_len = fbx.ins().select(len_eq, l_len, zero);
+                    
+                    let l_ptr_addr = fbx.ins().iadd_imm(lhs, ptr_field_offset);
+                    let l_ptr = fbx.ins().load(types::I64, MemFlags::new(), l_ptr_addr, 0);
+                    let r_ptr_addr = fbx.ins().iadd_imm(rhs, ptr_field_offset);
+                    let r_ptr = fbx.ins().load(types::I64, MemFlags::new(), r_ptr_addr, 0);
+                    
+                    let memcmp_func = ms_ctx.current_module.fn_registry.registry.get("memcmp").expect("memcmp not found");
+                    let func_ref = module.declare_func_in_func(memcmp_func.func_id, fbx.func);
+                    let call_inst = fbx.ins().call(func_ref, &[l_ptr, r_ptr, memcmp_len]);
+                    let res = fbx.inst_results(call_inst)[0];
+                    let mem_eq = fbx.ins().icmp_imm(IntCC::Equal, res, 0);
+                    
+                    return fbx.ins().select(len_eq, mem_eq, len_eq);
+                }
+            }
+            todo!("comparison for match not implemented for structs other than StrSlice")
+        }
+        _ => todo!("comparison for match not implemented for {:?}", ty),
+    }
+}
+
 pub fn check_if_its_enum_unwrap(
     type_name: &MsTokenType,
     ms_ctx: &mut MsContext,
@@ -1891,3 +2185,6 @@ pub fn check_if_its_enum_unwrap(
         _ => None,
     };
 }
+
+
+

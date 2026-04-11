@@ -1,3 +1,4 @@
+use linear_map::LinearMap;
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
 use cranelift::{
@@ -129,6 +130,18 @@ pub fn compile_binary(
             }));
         }
 
+        if !has_decl("free") {
+            let mut free_sig = module.make_signature();
+            free_sig.params.push(AbiParam::new(types::I64).sext());
+            let free_id = module.declare_function("free", Linkage::Import, &free_sig).unwrap();
+            ms_ctx.current_module.fn_registry.add_function("free", Rc::new(MsDeclaredFunction {
+                func_id: free_id,
+                arguments: Default::default(),
+                rets: None,
+                fn_type: FunctionType::Extern,
+            }));
+        }
+
         if !has_decl("memcpy") {
             let mut memcpy_sig = module.make_signature();
             memcpy_sig.params.push(AbiParam::new(types::I64).sext()); // dest
@@ -142,7 +155,39 @@ pub fn compile_binary(
                 fn_type: FunctionType::Extern,
             }));
         }
+
+        if !has_decl("memcmp") {
+            let mut memcmp_sig = module.make_signature();
+            memcmp_sig.params.push(AbiParam::new(types::I64).sext()); // s1
+            memcmp_sig.params.push(AbiParam::new(types::I64).sext()); // s2
+            memcmp_sig.params.push(AbiParam::new(types::I64).sext()); // n
+            memcmp_sig.returns.push(AbiParam::new(types::I32).sext());
+            let memcmp_id = module.declare_function("memcmp", Linkage::Import, &memcmp_sig).unwrap();
+            ms_ctx.current_module.fn_registry.add_function("memcmp", Rc::new(MsDeclaredFunction {
+                func_id: memcmp_id,
+                arguments: Default::default(),
+                rets: Some(ms_ctx.current_module.type_registry.get_from_str("i32").unwrap().id),
+                fn_type: FunctionType::Extern,
+            }));
+        }
+
+        if !has_decl("print") {
+            let mut puts_sig = module.make_signature();
+            puts_sig.params.push(AbiParam::new(types::I64).sext());
+            puts_sig.returns.push(AbiParam::new(types::I32).sext());
+            let puts_id = module.declare_function("puts", Linkage::Import, &puts_sig).unwrap();
+            let mut print_arguments = LinearMap::new();
+            print_arguments.insert("s".into(), ms_ctx.current_module.type_registry.get_from_str("i64").unwrap().id);
+            ms_ctx.current_module.fn_registry.add_function("print", Rc::new(MsDeclaredFunction {
+                func_id: puts_id,
+                arguments: print_arguments,
+                rets: None,
+                fn_type: FunctionType::Extern,
+            }));
+        }
     }
+
+
 
     for declaration in program.declarations {
         match declaration {
@@ -440,8 +485,8 @@ pub fn compile_binary(
                             generics: generics.clone(),
                         };
 
-                        let for_type = impl_block.for_type.as_ref().unwrap();
-                        let ty_name = TypeNameWithGenerics::from_type(for_type).unwrap().name;
+                        let for_type_node = impl_block.for_type.as_ref().unwrap_or(&impl_block.trait_name);
+                        let ty_name = TypeNameWithGenerics::from_type(for_type_node).unwrap().name;
 
                         let registry = if let Some(registry) = ms_ctx
                             .current_module
