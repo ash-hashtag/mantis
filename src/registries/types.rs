@@ -367,6 +367,27 @@ impl TypeNameWithGenerics {
         real_types: &HashMap<Box<str>, MsTypeWithId>,
         ms_module: &mut MsModule,
     ) -> MsTypeWithId {
+        if self.name.as_ref() == "__ms_fn" {
+            let mut param_ids = Vec::new();
+            for g in &self.generics[0..self.generics.len()-1] {
+                param_ids.push(g.generate(real_types, ms_module).id);
+            }
+            let ret_id = self.generics.last().unwrap().generate(real_types, ms_module).id;
+            
+            let mut arguments = LinearMap::new();
+            for (i, id) in param_ids.into_iter().enumerate() {
+                arguments.insert(format!("p{}", i).into(), id);
+            }
+            let signature = MsDeclaredFunction {
+                arguments,
+                rets: Some(ret_id),
+                fn_type: crate::registries::functions::FunctionType::Public,
+                func_id: cranelift_module::FuncId::from_u32(0),
+            };
+            let id = ms_module.type_registry.get_or_add_type(MsType::Function(Rc::new(signature)));
+            let ty = ms_module.type_registry.get_from_type_id(id).unwrap();
+            return MsTypeWithId { id, ty };
+        }
         let mut base = if let Some(ty) = real_types.get(&self.name) {
             assert!(self.generics.is_empty());
              ty.clone()
@@ -416,6 +437,18 @@ impl TypeNameWithGenerics {
                 let mut inner_ty = Self::from_type(inner)?;
                 inner_ty.refs.push(*is_mutable);
                 Some(inner_ty)
+            }
+            TypeExpr::Function(params, ret) => {
+                let mut generics = params
+                    .iter()
+                    .map(Self::from_type)
+                    .collect::<Option<Vec<_>>>()?;
+                generics.push(Self::from_type(ret)?);
+                Some(Self {
+                    name: "__ms_fn".into(),
+                    generics,
+                    refs: vec![],
+                })
             }
             _ => None,
         }
@@ -564,6 +597,12 @@ impl PartialEq for MsType {
             (MsType::Native(ty1), MsType::Native(ty2)) => ty1 == ty2,
             (MsType::Struct(ty1), MsType::Struct(ty2)) => Rc::ptr_eq(ty1, ty2),
             (MsType::Ref(ty1, mut1), MsType::Ref(ty2, mut2)) => ty1 == ty2 && mut1 == mut2,
+            (MsType::Function(f1), MsType::Function(f2)) => {
+                let args1: Vec<_> = f1.arguments.values().collect();
+                let args2: Vec<_> = f2.arguments.values().collect();
+                args1 == args2 && f1.rets == f2.rets
+            }
+            (MsType::Enum(ty1), MsType::Enum(ty2)) => Rc::ptr_eq(ty1, ty2),
             _ => false,
         }
     }
@@ -572,8 +611,30 @@ impl PartialEq for MsType {
 impl Hash for MsType {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            MsType::Native(ty) => state.write(ty.to_string().as_bytes()),
-            _ => todo!(),
+            MsType::Native(ty) => {
+                state.write_u8(0);
+                ty.to_string().hash(state);
+            }
+            MsType::Struct(s) => {
+                state.write_u8(1);
+                Rc::as_ptr(s).hash(state);
+            }
+            MsType::Enum(e) => {
+                state.write_u8(2);
+                Rc::as_ptr(e).hash(state);
+            }
+            MsType::Ref(inner, is_mutable) => {
+                state.write_u8(3);
+                inner.hash(state);
+                is_mutable.hash(state);
+            }
+            MsType::Function(f) => {
+                state.write_u8(4);
+                for arg in f.arguments.values() {
+                    arg.hash(state);
+                }
+                f.rets.hash(state);
+            }
         }
     }
 }
@@ -604,6 +665,12 @@ impl MsType {
             (MsType::Native(t0), MsType::Native(t1)) => t0 == t1,
             (MsType::Struct(t0), MsType::Struct(t1)) => Rc::ptr_eq(t0, t1),
             (MsType::Ref(t0, m0), MsType::Ref(t1, m1)) => m0 == m1 && t0 == t1,
+            (MsType::Function(f1), MsType::Function(f2)) => {
+                let args1: Vec<_> = f1.arguments.values().collect();
+                let args2: Vec<_> = f2.arguments.values().collect();
+                args1 == args2 && f1.rets == f2.rets
+            }
+            (MsType::Enum(t0), MsType::Enum(t1)) => Rc::ptr_eq(t0, t1),
             _ => false,
         }
     }
@@ -617,6 +684,7 @@ impl MsType {
                 8
             }
             MsType::Enum(ety) => ety.max_variant_size() + 8,
+            MsType::Function(_) => 8,
             _ => todo!(),
         }
     }
@@ -627,6 +695,7 @@ impl MsType {
             MsType::Struct(ty) => ty.align(),
             MsType::Ref(_, _) => 8,
             MsType::Enum(_) => 8,
+            MsType::Function(_) => 8,
             _ => todo!(),
         }
     }
@@ -637,6 +706,7 @@ impl MsType {
             MsType::Struct(ty) => Some(ty.to_abi_param()),
             MsType::Ref(_, _) => Some(AbiParam::new(types::I64)),
             MsType::Enum(ty) => Some(ty.to_abi_param()),
+            MsType::Function(_) => Some(AbiParam::new(types::I64)),
             _ => todo!(),
         }
     }
@@ -647,6 +717,7 @@ impl MsType {
             MsType::Ref(ty, _) => Some(types::I64),
             MsType::Struct(_) => Some(types::I64),
             MsType::Enum(ty) => Some(ty.to_cl_type()),
+            MsType::Function(_) => Some(types::I64),
             _ => todo!(),
         }
     }

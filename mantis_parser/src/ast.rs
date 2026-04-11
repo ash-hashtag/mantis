@@ -141,6 +141,8 @@ pub enum TypeExpr {
     Generic(Box<TypeExpr>, Vec<TypeExpr>),
     /// Reference: `@T` or `@mut T` or `&T` or `&mut T`
     Ref(Box<TypeExpr>, bool), // (inner, is_mutable)
+    /// Function type: `(i32, f32) i64`
+    Function(Vec<TypeExpr>, Box<TypeExpr>), // (params, return_type)
     /// Unknown / not specified
     Unknown,
 }
@@ -166,6 +168,10 @@ impl TypeExpr {
                 s
             }
             TypeExpr::Ref(inner, _) => inner.span(),
+            TypeExpr::Function(params, ret) => {
+                let mut s = params.first().map(|x| x.span()).unwrap_or(ret.span());
+                s.merge(ret.span())
+            }
             TypeExpr::Unknown => Span::new(0, 0),
         }
     }
@@ -348,6 +354,12 @@ pub enum Expr {
         expr: Box<Expr>,
         span: Span,
     },
+    /// Generic arguments on an expression: `foo[T]`, `obj.method[T]`
+    Generic {
+        base: Box<Expr>,
+        params: Vec<TypeExpr>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -368,7 +380,8 @@ impl Expr {
             | Expr::Lambda { span, .. }
             | Expr::CompilerCall { span, .. }
             | Expr::PointerAssign { span, .. }
-            | Expr::Propagate { span, .. } => *span,
+            | Expr::Propagate { span, .. }
+            | Expr::Generic { span, .. } => *span,
             Expr::Ident(id) => id.span,
             Expr::TypeExpr(ty) => ty.span(),
         }

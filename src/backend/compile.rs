@@ -474,12 +474,13 @@ pub fn compile_binary(
                         .collect();
 
                     for function in impl_block.methods {
-                        let func_name: Box<str> = function
-                            .name
-                            .as_ref()
-                            .and_then(|n| n.as_name())
-                            .unwrap()
-                            .into();
+                        let name_expr = function.name.as_ref().unwrap();
+                        let name = name_expr.as_name().or_else(|| {
+                            if let TypeExpr::Generic(base, _) = name_expr {
+                                base.as_name()
+                            } else { None }
+                        }).expect(&format!("method name error in {:?}", name_expr));
+                        let func_name: Box<str> = name.into();
                         let template = MsGenericFunction {
                             decl: Rc::new(function),
                             generics: generics.clone(),

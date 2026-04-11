@@ -415,7 +415,7 @@ pub fn compile_assignment_on_pointers(
                 }
             }
         }
-        MsType::Ref(_, _) => {
+        MsType::Ref(_, _) | MsType::Function(_) => {
             let ptr = lhs.address(fbx, ms_ctx);
             let value = rhs.value(fbx, ms_ctx);
             fbx.ins().store(MemFlags::new(), value, ptr, 0);
@@ -851,6 +851,42 @@ pub fn compile_node(
                 method_on_variable = Some(var.clone());
                 func.clone()
             } else {
+                if let Some(name) = fn_type_expr.as_name() {
+                    if let Some(var) = ms_ctx.var_scopes.find_variable(name) {
+                        let val = NodeResult::Var(var.clone()).to_ms_val(fbx, ms_ctx);
+                        let MsType::Function(f) = ms_ctx.current_module.type_registry.get_from_type_id(val.ty_id).unwrap() else {
+                            panic!("callee is not a function: {:?}", name);
+                        };
+                        
+                        let mut sig = module.make_signature();
+                        for (_, p_id) in &f.arguments {
+                            let p_ty = ms_ctx.current_module.type_registry.get_from_type_id(*p_id).unwrap();
+                            sig.params.push(p_ty.to_abi_param().unwrap());
+                        }
+                        if let Some(r_id) = f.rets {
+                            let r_ty = ms_ctx.current_module.type_registry.get_from_type_id(r_id).unwrap();
+                            sig.returns.push(r_ty.to_abi_param().unwrap());
+                        }
+                        
+                        let sig_ref = fbx.import_signature(sig);
+                        
+                        let mut args_vals = Vec::new();
+                        for a in args {
+                            args_vals.push(compile_node(a, module, fbx, ms_ctx).unwrap().value(fbx, ms_ctx));
+                        }
+                        
+                        let call = fbx.ins().call_indirect(sig_ref, val.value, &args_vals);
+                        let ret_val = if let Some(r_id) = f.rets {
+                            let result = fbx.inst_results(call)[0];
+                            NodeResult::Val(MsVal::new(r_id, result))
+                        } else {
+                            let v8 = fbx.ins().iconst(types::I64, 0);
+                            NodeResult::Val(MsVal::new(ms_ctx.current_module.type_registry.get_type_id("void").unwrap_or(MsTypeId(0)), v8))
+                        };
+                        return Some(ret_val);
+                    }
+                }
+
                 match ms_ctx
                     .current_module
                     .resolve(&fn_type_expr)
@@ -1300,7 +1336,33 @@ pub fn compile_node(
             ));
             todo!("array init");
         }
-        Expr::Lambda { decl, span } => todo!("lambda compilation"),
+        Expr::Lambda { decl, span } => {
+            let lambda_name = format!("_lambda_{}", random_string(8));
+            let mut lambda_decl = *decl.clone();
+            lambda_decl.name = Some(mantis_parser::ast::TypeExpr::Named(mantis_parser::ast::Ident::new(&lambda_name, *span)));
+            
+            let mut lambda_ctx = module.make_context();
+            let mut lambda_fbx_ctx = cranelift::prelude::FunctionBuilderContext::new();
+            
+            let declared_func = compile_function(
+                lambda_decl,
+                module,
+                &mut lambda_ctx,
+                &mut lambda_fbx_ctx,
+                ms_ctx,
+                None, // trait_on_type
+                Some(&lambda_name),
+            );
+
+            let local_func = module.declare_func_in_func(declared_func.func_id, fbx.func);
+            let addr = fbx.ins().func_addr(cranelift::prelude::types::I64, local_func);
+            
+            let fn_ty = ms_ctx.current_module.type_registry.get_or_add_type(MsType::Function(declared_func));
+            return Some(NodeResult::Val(MsVal::new(fn_ty, addr)));
+        }
+        Expr::Generic { base, params, span } => {
+            todo!("standalone generic expression");
+        }
         Expr::CompilerCall { name, args, span } => {
             if name == "init" {
                 let ty_expr = if let Expr::TypeExpr(ty) = args.first().unwrap() {
@@ -1489,6 +1551,10 @@ fn field_access_to_type_expr(expr: &Expr) -> MsTokenType {
             MsTokenType::Nested(Box::new(root), Box::new(child))
         }
         Expr::TypeExpr(ty) => ty.clone(),
+        Expr::Generic { base, params, .. } => {
+            let base_ty = field_access_to_type_expr(base);
+            MsTokenType::Generic(Box::new(base_ty), params.clone())
+        }
         _ => MsTokenType::Unknown,
     }
 }

@@ -78,7 +78,16 @@ impl MsModule {
     }
 
     pub fn add_alias(&mut self, alias_name: TypeNameWithGenerics, alias_type: MsTypeWithId) {
-        assert!(self.aliased_types.insert(alias_name, alias_type).is_none())
+        if let Some(existing) = self.aliased_types.get(&alias_name) {
+            if existing.id == alias_type.id {
+                return;
+            }
+        }
+        if let Some(old) = self.aliased_types.insert(alias_name.clone(), alias_type.clone()) {
+            if old.id != alias_type.id {
+                log::warn!("Overwriting type alias {:?} (Old ID: {:?}, New ID: {:?})", alias_name, old.id, alias_type.id);
+            }
+        }
     }
 
     pub fn resolve_from_str(&mut self, type_name: &str) -> Option<MsResolved> {
@@ -172,6 +181,30 @@ impl MsModule {
                 let id = self.type_registry.add_type(deterministic_name, ty_val.clone());
                 let ref_ty = MsTypeWithId { id, ty: ty_val };
                 return Some(MsResolved::TypeRef(ref_ty, *is_mutable));
+            }
+            Type::Function(params, ret) => {
+                let mut param_ids = Vec::new();
+                for p in params {
+                    param_ids.push(self.resolve(p)?.ty()?.id);
+                }
+                let ret_id = self.resolve(ret)?.ty()?.id;
+                
+                // Create a dummy function signature for the type
+                let mut arguments = LinearMap::new();
+                for (i, id) in param_ids.into_iter().enumerate() {
+                    arguments.insert(format!("p{}", i).into(), id);
+                }
+                
+                let signature = MsDeclaredFunction {
+                    arguments,
+                    rets: Some(ret_id),
+                    fn_type: crate::registries::functions::FunctionType::Public,
+                    func_id: cranelift_module::FuncId::from_u32(0), // Placeholder
+                };
+                
+                let id = self.type_registry.get_or_add_type(MsType::Function(Rc::new(signature)));
+                let ty = self.type_registry.get_from_type_id(id).unwrap();
+                return Some(MsResolved::Type(MsTypeWithId { id, ty }));
             }
 
             Type::Unknown => return None,

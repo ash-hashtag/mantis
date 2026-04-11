@@ -201,7 +201,10 @@ impl Parser {
 
     fn parse_fn_decl(&mut self) -> PResult<FnDecl> {
         let start = self.expect(&Token::Fn)?;
+        self.parse_lambda_decl_no_fn(start)
+    }
 
+    fn parse_lambda_decl_no_fn(&mut self, start: Span) -> PResult<FnDecl> {
         // Optional name (lambdas have no name)
         let name = if !matches!(self.peek(), Some(Token::LParen)) {
             Some(self.parse_type_name()?)
@@ -437,6 +440,25 @@ impl Parser {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     fn parse_type_name(&mut self) -> PResult<TypeExpr> {
+        // Handle function type: (i32, f32) i64
+        if matches!(self.peek(), Some(Token::LParen)) {
+            self.advance();
+            let mut params = Vec::new();
+            while !matches!(self.peek(), Some(Token::RParen) | None) {
+                params.push(self.parse_type_name()?);
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+            }
+            self.expect(&Token::RParen)?;
+            let ret = if self.peek_is_type_start() {
+                self.parse_type_name()?
+            } else {
+                TypeExpr::Named(Ident::new("void", self.prev_span()))
+            };
+            return Ok(TypeExpr::Function(params, Box::new(ret)));
+        }
+
         // Handle reference prefix: @, @mut, &, &mut
         if matches!(self.peek(), Some(Token::At)) {
             self.advance();
@@ -491,6 +513,13 @@ impl Parser {
         }
 
         Ok(ty)
+    }
+
+    fn peek_is_type_start(&self) -> bool {
+        matches!(
+            self.peek(),
+            Some(Token::Ident(_) | Token::At | Token::Amp | Token::LParen | Token::CompilerFn(_))
+        )
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -846,8 +875,17 @@ impl Parser {
                 return Err(self.error("expected expression, found '*' (use '@' for dereference)".into()));
             }
 
-            // Parenthesized expression
+            // Parenthesized expression or Lambda
             Some(Token::LParen) => {
+                if self.is_lambda_start() {
+                    let start = self.peek_span();
+                    let decl = self.parse_lambda_decl_no_fn(start)?;
+                    let span = decl.span;
+                    return Ok(Expr::Lambda {
+                        decl: Box::new(decl),
+                        span,
+                    });
+                }
                 self.advance();
                 let inner = self.parse_expr(0)?;
                 self.expect(&Token::RParen)?;
@@ -1061,6 +1099,16 @@ impl Parser {
                     span,
                 })
             }
+            Some(Token::LBracket) => {
+                self.advance();
+                let params = self.try_parse_generic_args()?;
+                let span = lhs.span().merge(self.prev_span());
+                Ok(Expr::Generic {
+                    base: Box::new(lhs),
+                    params,
+                    span,
+                })
+            }
             _ => Err(self.error("expected postfix operator".into())),
         }
     }
@@ -1111,8 +1159,36 @@ impl Parser {
         match self.peek()? {
             Token::LParen => Some(25),  // function call
             Token::Question => Some(25), // propagate
+            Token::LBracket => Some(25), // generic args
             _ => None,
         }
+    }
+
+    fn is_lambda_start(&self) -> bool {
+        if !matches!(self.peek(), Some(Token::LParen)) {
+            return false;
+        }
+
+        // Case: () followed by { or ident (return type)
+        if matches!(self.peek_nth(1), Some(Token::RParen)) {
+            return matches!(self.peek_nth(2), Some(Token::LBrace | Token::Ident(_) | Token::At | Token::Amp));
+        }
+
+        // Case: (ident ident) or (ident @) or (ident &)
+        if matches!(self.peek_nth(1), Some(Token::Ident(_))) {
+            match self.peek_nth(2) {
+                Some(Token::Ident(_) | Token::At | Token::Amp | Token::LParen) => return true,
+                Some(Token::Comma) => return true,
+                _ => {}
+            }
+        }
+
+        // Case: (mut ...
+        if matches!(self.peek_nth(1), Some(Token::Mut)) {
+            return true;
+        }
+
+        false
     }
 }
 
