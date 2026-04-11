@@ -8,7 +8,7 @@ type Point = struct {
 
 fn main() i32 {
     // 1. Pointer manipulation & Pointer to struct access
-    let p_ptr @Point = malloc(#size_of(Point)) as @Point;
+    let p_ptr @Point = #init(Point);
     
     // Direct access through pointer (uses my fix in compile_nested_struct_access)
     p_ptr.x = 100;
@@ -22,13 +22,13 @@ fn main() i32 {
     let b &i64 = &a;
     let val_a = @b; // Dereference
 
-    // 3. Compiler macro #as_ref
+    // 3. Compiler macro #ref
     // Convert pointer to reference
-    let p_ref &Point = #as_ref(p_ptr);
+    let p_ref &Point = #ref(p_ptr);
     let rx = p_ref.x;
     let ry = p_ref.y;
 
-    free(p_ptr as i64);
+    #free(p_ptr);
 
     if x == 100 {
         if y == 200 {

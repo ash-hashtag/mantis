@@ -17,24 +17,32 @@ pub enum Either<L, R> {
 pub enum NodeResult {
     Val(MsVal),
     Var(MsVar),
-    StructAccessVar { ptr: MsVal, offset: u32 },
+    StructAccessVar {
+        ptr: Value,
+        offset: usize,
+        ty_id: MsTypeId,
+    },
 }
 
 impl NodeResult {
-    pub fn value(&self, fbx: &mut FunctionBuilder) -> Value {
+    pub fn value(&self, fbx: &mut FunctionBuilder, ms_ctx: &crate::ms::MsContext) -> Value {
         match self {
             NodeResult::Val(val) => val.value,
             NodeResult::Var(var) => fbx.use_var(var.c_var),
-            // NodeResult::StructAccessVar { ptr, offset } => {
-            //     let value = ptr.value();
-            //     fbx.ins().load(
-            //         ptr.ty.to_cl_type().unwrap(),
-            //         MemFlags::new(),
-            //         value,
-            //         *offset as i32,
-            //     )
-            // }
-            _ => todo!(),
+            NodeResult::StructAccessVar {
+                ptr,
+                offset,
+                ty_id,
+            } => {
+                let ty = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_from_type_id(*ty_id)
+                    .unwrap();
+                let cl_ty = ty.to_cl_type().unwrap();
+                let addr = fbx.ins().iadd_imm(*ptr, *offset as i64);
+                fbx.ins().load(cl_ty, MemFlags::new(), addr, 0)
+            }
         }
     }
 
@@ -42,7 +50,7 @@ impl NodeResult {
         match self {
             NodeResult::Val(val) => val.ty_id,
             NodeResult::Var(var) => var.ty_id,
-            NodeResult::StructAccessVar { ptr, offset } => ptr.ty_id,
+            NodeResult::StructAccessVar { ty_id, .. } => *ty_id,
         }
     }
 
@@ -54,9 +62,9 @@ impl NodeResult {
     //     }
     // }
 
-    pub fn to_ms_val(&self, fbx: &mut FunctionBuilder) -> MsVal {
+    pub fn to_ms_val(&self, fbx: &mut FunctionBuilder, ms_ctx: &crate::ms::MsContext) -> MsVal {
         let ty = self.ty().clone();
-        let val = self.value(fbx);
+        let val = self.value(fbx, ms_ctx);
         MsVal::new(ty, val)
     }
 }

@@ -14,10 +14,13 @@ use crate::{
     backend::compile_function::MethodFor,
     ms::MsContext,
     registries::{
-        functions::{MsFunctionRegistry, MsGenericFunction, MsDeclaredFunction, FunctionType},
+        functions::{FunctionType, MsDeclaredFunction, MsFunctionRegistry, MsGenericFunction},
         modules::{resolve_module_by_word, MsResolved},
-        structs::{MsStructType, MsEnumType},
-        types::{MsGenericTemplate, MsGenericTemplateInner, MsTypeRegistry, TypeNameWithGenerics, MsType},
+        structs::{MsEnumType, MsStructType},
+        types::{
+            EnumWithGenerics, MsGenericTemplate, MsGenericTemplateInner, MsType, MsTypeRegistry,
+            StructWithGenerics, TypeNameWithGenerics,
+        },
     },
 };
 
@@ -174,14 +177,51 @@ pub fn compile_binary(
                                             .to_string()
                                     })
                                     .collect::<Vec<String>>();
-                                let resolved_ty = match &typedef.definition {
-                                    TypeDefBody::Alias(ty) => ty.clone(),
-                                    // For struct/enum defs, resolve differently
-                                    _ => name.clone(),
+                                let template = match &typedef.definition {
+                                    TypeDefBody::Alias(ty) => Rc::new(
+                                        ms_ctx.current_module.resolve_with_generics(ty, &generics),
+                                    ),
+                                    TypeDefBody::Struct(struct_def) => {
+                                        let mut map = linear_map::LinearMap::new();
+                                        for field in &struct_def.fields {
+                                            map.insert(
+                                                field.name.name.clone().into_boxed_str(),
+                                                TypeNameWithGenerics::from_type(&field.ty).unwrap(),
+                                            );
+                                        }
+                                        Rc::new(MsGenericTemplate {
+                                            generics: generics.clone(),
+                                            inner_type: MsGenericTemplateInner::Struct(
+                                                StructWithGenerics { map },
+                                            ),
+                                        })
+                                    }
+                                    TypeDefBody::Enum(enum_def) => {
+                                        let mut map = linear_map::LinearMap::new();
+                                        for variant in &enum_def.variants {
+                                            let ty = if !variant.fields.is_empty() {
+                                                Some(
+                                                    TypeNameWithGenerics::from_type(
+                                                        &variant.fields[0],
+                                                    )
+                                                    .unwrap(),
+                                                )
+                                            } else {
+                                                None
+                                            };
+                                            map.insert(
+                                                variant.name.name.clone().into_boxed_str(),
+                                                ty,
+                                            );
+                                        }
+                                        Rc::new(MsGenericTemplate {
+                                            generics: generics.clone(),
+                                            inner_type: MsGenericTemplateInner::Enum(
+                                                EnumWithGenerics { map },
+                                            ),
+                                        })
+                                    }
                                 };
-                                let template = Rc::new(
-                                    ms_ctx.current_module.resolve_with_generics(&resolved_ty, &generics),
-                                );
                                 let key = base
                                     .as_name()
                                     .or_else(|| {

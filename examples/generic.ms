@@ -12,7 +12,7 @@ trait Into[T] {
 
 impl Into[f64] for u64 {
 	fn into(self @mut Self) f64  {
-		self as f64	
+		return self as f64;
 	}
 }
 

@@ -114,7 +114,6 @@ impl MsModule {
                                 real_types.insert(generic_name.as_str().into(), real_ty);
                             }
                         }
-                        dbg!(&real_types);
                         let generated_type = template.generate(&real_types, self);
                         return Some(MsResolved::Type(generated_type));
                     }

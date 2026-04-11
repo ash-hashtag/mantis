@@ -394,6 +394,7 @@ impl TypeNameWithGenerics {
                 name: ident.name.clone().into_boxed_str(),
                 generics: vec![],
             },
+            TypeExpr::Ref(inner, _) => return Self::from_type(inner),
             _ => {
                 return None;
             }
