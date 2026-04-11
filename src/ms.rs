@@ -6,7 +6,7 @@ use cranelift_object::ObjectModule;
 
 use crate::{
     registries::{
-        functions::{MsFunctionRegistry, MsFunctionTemplates, MsTraitTemplates},
+        functions::{MsFunctionRegistry, MsFunctionTemplates, MsTraitTemplates, MsInstantiation},
         modules::{MsModule, MsModuleRegistry},
         traits::MsTraitRegistry,
         types::{MsTypeRegistry, MsTypeTemplates},
@@ -20,6 +20,7 @@ pub struct MsContext {
     pub loop_scopes: MsLoopScopes,
     pub current_module: MsModule,
     pub disable_auto_drop: bool,
+    pub instantiation_queue: Vec<MsInstantiation>,
 }
 
 impl MsContext {
@@ -30,6 +31,7 @@ impl MsContext {
             var_scopes: Default::default(),
             loop_scopes: Default::default(),
             disable_auto_drop: false,
+            instantiation_queue: vec![],
         }
     }
 

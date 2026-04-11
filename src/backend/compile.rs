@@ -95,6 +95,7 @@ pub fn compile_binary(
             .get_from_str("i64")
             .unwrap();
         let template = MsGenericTemplate {
+            name: "pointer".into(),
             generics: vec!["T".into()],
             inner_type: MsGenericTemplateInner::Type(TypeNameWithGenerics::new("i64".into(), vec![])),
         };
@@ -146,15 +147,50 @@ pub fn compile_binary(
     for declaration in program.declarations {
         match declaration {
             Declaration::Function(function_decl) => {
-                compile_function(
-                    function_decl,
-                    &mut module,
-                    &mut ctx,
-                    &mut fbx,
-                    &mut ms_ctx,
-                    None,
-                    None,
-                );
+                let is_generic = if let Some(TypeExpr::Generic(_, _)) = &function_decl.name {
+                    true
+                } else {
+                    false
+                };
+
+                if is_generic {
+                    let (name, generics) = if let Some(TypeExpr::Generic(base, generics)) =
+                        &function_decl.name
+                    {
+                        let name = base.as_name().expect("function name must be an identifier").to_string();
+                        let generics = generics
+                            .iter()
+                            .map(|x| {
+                                x.as_name()
+                                    .expect("generic param must be an identifier")
+                                    .into()
+                            })
+                            .collect::<Vec<Box<str>>>();
+                        (name, generics)
+                    } else {
+                        unreachable!()
+                    };
+
+                    let template = MsGenericFunction {
+                        decl: Rc::new(function_decl),
+                        generics,
+                    };
+                    ms_ctx
+                        .current_module
+                        .fn_templates
+                        .registry
+                        .insert(name.into(), template);
+                } else {
+                    compile_function(
+                        function_decl,
+                        &mut module,
+                        &mut ctx,
+                        &mut fbx,
+                        &mut ms_ctx,
+                        None,
+                        None,
+                    );
+                }
             }
             Declaration::TypeDef(typedef) => {
                 let name = &typedef.name;
@@ -174,9 +210,9 @@ pub fn compile_binary(
                                                 }
                                             })
                                             .expect("generic name error")
-                                            .to_string()
+                                            .into()
                                     })
-                                    .collect::<Vec<String>>();
+                                    .collect::<Vec<Box<str>>>();
                                 let template = match &typedef.definition {
                                     TypeDefBody::Alias(ty) => Rc::new(
                                         ms_ctx.current_module.resolve_with_generics(ty, &generics),
@@ -190,6 +226,7 @@ pub fn compile_binary(
                                             );
                                         }
                                         Rc::new(MsGenericTemplate {
+                                            name: base.as_name().unwrap().to_string().into(),
                                             generics: generics.clone(),
                                             inner_type: MsGenericTemplateInner::Struct(
                                                 StructWithGenerics { map },
@@ -215,6 +252,7 @@ pub fn compile_binary(
                                             );
                                         }
                                         Rc::new(MsGenericTemplate {
+                                            name: base.as_name().unwrap().to_string().into(),
                                             generics: generics.clone(),
                                             inner_type: MsGenericTemplateInner::Enum(
                                                 EnumWithGenerics { map },
@@ -432,6 +470,34 @@ pub fn compile_binary(
                 }
                 ms_ctx.current_module.clear_aliases();
             }
+        }
+    }
+
+    while !ms_ctx.instantiation_queue.is_empty() {
+        let insts: Vec<_> = ms_ctx.instantiation_queue.drain(..).collect();
+        for inst in insts {
+            // Compile the instantiation
+            // Set aliases
+            for (name, res) in inst.template.generics.iter().zip(inst.real_types.iter()) {
+                if let Some(ty) = res.ty() {
+                    ms_ctx.current_module.add_alias(
+                        TypeNameWithGenerics::new(name.clone(), vec![]),
+                        ty,
+                    );
+                }
+            }
+
+            compile_function(
+                inst.template.decl.as_ref().clone(),
+                &mut module,
+                &mut ctx,
+                &mut fbx,
+                &mut ms_ctx,
+                None,
+                Some(&inst.instantiation_name),
+            );
+
+            ms_ctx.current_module.clear_aliases();
         }
     }
 

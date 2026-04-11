@@ -17,7 +17,7 @@ use crate::{
 use super::{
     functions::{
         MsDeclaredFunction, MsFunctionRegistry, MsFunctionTemplates, MsTraitGenericTemplates,
-        MsTraitTemplates,
+        MsTraitTemplates, MsGenericFunction,
     },
     traits::MsTraitRegistry,
     types::{
@@ -55,6 +55,7 @@ pub enum MsResolved {
     TypeRef(MsTypeWithId, bool),
     Generic(Rc<MsGenericTemplate>),
     EnumUnwrap(MsTypeWithId, Box<str>), // enum_ty and variant name
+    GenericFunctionInstantiation(MsGenericFunction, Vec<MsResolved>),
 }
 
 impl MsResolved {
@@ -111,20 +112,21 @@ impl MsModule {
 
                         for (generic_name, ty) in template.generics.iter().zip(generics.iter()) {
                             if let Some(MsResolved::Type(real_ty)) = self.resolve(ty) {
-                                real_types.insert(generic_name.as_str().into(), real_ty);
+                                real_types.insert(generic_name.as_ref().into(), real_ty);
                             }
                         }
                         let generated_type = template.generate(&real_types, self);
                         return Some(MsResolved::Type(generated_type));
                     }
                     if let Some(template) = self.fn_templates.registry.get(key.as_str()).cloned() {
-                        let mut real_types = generics
+                        let real_types = generics
                             .iter()
                             .map(|x| self.resolve(x))
                             .collect::<Option<Vec<_>>>()?;
 
-                        let generated_func = template.generate(real_types);
-                        todo!("compile the generated func")
+                        return Some(MsResolved::GenericFunctionInstantiation(
+                            template, real_types,
+                        ));
                     }
                 }
                 return None;
@@ -164,24 +166,30 @@ impl MsModule {
             }
 
             Type::Ref(ty, is_mutable) => {
-                let ty = self.resolve(ty)?.ty().unwrap();
-                let ty = MsResolved::TypeRef(ty, *is_mutable);
-                return Some(ty);
+                let inner = self.resolve(ty)?.ty().unwrap();
+                let deterministic_name = format!("ref_{}{}", if *is_mutable { "mut_" } else { "" }, inner.id.0);
+                let ty_val = MsType::Ref(Box::new(inner.ty), *is_mutable);
+                let id = self.type_registry.add_type(deterministic_name, ty_val.clone());
+                let ref_ty = MsTypeWithId { id, ty: ty_val };
+                return Some(MsResolved::TypeRef(ref_ty, *is_mutable));
             }
 
+            Type::Unknown => return None,
             _ => unreachable!("unhandled {:?}", type_name),
-        };
+        }
     }
 
     pub fn resolve_with_generics(
         &mut self,
         type_name: &Type,
-        root_generices: &[String],
+        root_generics: &[Box<str>],
     ) -> MsGenericTemplate {
         match type_name {
             Type::Generic(_, _) | Type::Named(_) => {
+                let name = type_name.as_name().unwrap_or("alias");
                 let template = MsGenericTemplate {
-                    generics: root_generices.to_vec(),
+                    name: name.into(),
+                    generics: root_generics.to_vec(),
                     inner_type: MsGenericTemplateInner::Type(
                         TypeNameWithGenerics::from_type(type_name).unwrap(),
                     ),
@@ -195,10 +203,10 @@ impl MsModule {
                     .submodules
                     .get_mut(key.as_str())
                     .expect("can't find module");
-                return module.resolve_with_generics(child, root_generices);
+                return module.resolve_with_generics(child, root_generics);
             }
             _ => unreachable!("unhandled {:?}", type_name),
-        };
+        }
     }
 }
 

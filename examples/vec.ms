@@ -55,7 +55,7 @@ fn Vec_new[T]() @Vec[T]  {
 }
 
 
-fn Vec_get_at[T](v @Vec[T], index u64) {
+fn Vec_get_at[T](v @Vec[T], index u64) T {
 	return @(v.ptr + index * #size_of(T));
 }
 
@@ -81,11 +81,11 @@ fn Vec_pop[T](v @Vec[T]) T {
 	if v.size > 0 {
 		v.size = v.size - 1;
 	}
-	return Vec_get_at(v, v.size);
+	return Vec_get_at[T](v, v.size);
 }
 
 
-fn Vec_truncate(v @Vec[T], size u64) {
+fn Vec_truncate[T](v @Vec[T], size u64) {
 	v.size = size;
 }
 

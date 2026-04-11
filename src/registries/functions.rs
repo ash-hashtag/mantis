@@ -56,14 +56,13 @@ impl Default for MsFunctionRegistry {
 }
 
 impl MsFunctionRegistry {
-    pub fn add_function(&mut self, name: impl Into<Box<str>>, decl: Rc<MsDeclaredFunction>) {
-        let fn_name: Box<str> = name.into();
-
-        log::info!("adding function to registry {}", fn_name);
-
-        if self.registry.insert(fn_name, decl).is_some() {
-            panic!("Function declared twice in same module");
+    pub fn add_function(&mut self, name: impl Into<Box<str>>, func: Rc<MsDeclaredFunction>) {
+        let name = name.into();
+        if let Some(_existing) = self.registry.get(&name) {
+            return;
         }
+        log::info!("adding function to registry {}", name);
+        self.registry.insert(name, func);
     }
 }
 
@@ -74,9 +73,16 @@ pub struct MsGenericFunction {
     pub generics: Vec<Box<str>>,
 }
 impl MsGenericFunction {
-    pub(crate) fn generate(&self, real_types: Vec<super::modules::MsResolved>) -> FunctionDecl {
+    pub(crate) fn generate(&self, _real_types: Vec<super::modules::MsResolved>) -> FunctionDecl {
         todo!()
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct MsInstantiation {
+    pub template: MsGenericFunction,
+    pub instantiation_name: String,
+    pub real_types: Vec<super::modules::MsResolved>,
 }
 
 #[derive(Default, Debug)]
