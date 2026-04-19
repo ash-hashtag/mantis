@@ -23,3 +23,6 @@ value = @variable means dereferencing the pointer and resolves to its value
 '#init(type)' returns a pointer to heap allocated type @type, must be freed using #free(@type)
 
 everything else is like any other programming languages
+
+
+run python tests/test_runner.py to make sure changes don't break other tests

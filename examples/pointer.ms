@@ -21,7 +21,7 @@ fn array_free[T](arr @Array[T]) {
 	free(arr as i64);
 }
 
-fn array_get_at[T](arr @Array[T], index u64) {
+fn array_get_at[T](arr @Array[T], index u64) T {
 	return @(arr.ptr + index * #size_of(T));
 }
 
@@ -44,7 +44,7 @@ fn Vec_free[T](v @Vec[T]) {
 fn Vec_with_capacity[T](cap u64)  @Vec[T] {
 	let ptr @T =  malloc(#size_of(T) * cap) as @T;
 	let arr @Vec[T] = malloc(#size_of(Vec[T])) as @Vec[T];
-	arr.ptr = 0 as @T;
+	arr.ptr = ptr;
 	arr.size = 0;
 	arr.cap = cap;
 	return arr;
@@ -55,7 +55,7 @@ fn Vec_new[T]() @Vec[T]  {
 }
 
 
-fn Vec_get_at[T](v @Vec[T], index u64) {
+fn Vec_get_at[T](v @Vec[T], index u64) T {
 	return @(v.ptr + index * #size_of(T));
 }
 
@@ -72,7 +72,7 @@ fn Vec_push[T](v @Vec[T], el T) {
 		v.ptr = new_ptr;
 		v.cap = new_size;
 	}
-	Vec_set_at(v, v.size, el);
+	Vec_set_at[T](v, v.size, el);
 	v.size = v.size + 1;
 }
 
@@ -81,11 +81,11 @@ fn Vec_pop[T](v @Vec[T]) T {
 	if v.size > 0 {
 		v.size = v.size - 1;
 	}
-	return Vec_get_at(v, v.size);
+	return Vec_get_at[T](v, v.size);
 }
 
 
-fn Vec_truncate(v @Vec[T], size u64) {
+fn Vec_truncate[T](v @Vec[T], size u64) {
 	v.size = size;
 }
 
@@ -104,6 +104,25 @@ fn main(argv i32, argc i64) i32 {
 	write(1, arr.ptr as i64, 5);
 
 	array_free[u8](arr);
+
+	let v @Vec[u8] = Vec_new[u8]();
+	Vec_push[u8](v, 32 as u8);
+	Vec_push[u8](v, 119 as u8);
+	Vec_push[u8](v, 111 as u8);
+	Vec_push[u8](v, 114 as u8);
+	Vec_push[u8](v, 108 as u8);
+	Vec_push[u8](v, 100 as u8);
+	Vec_push[u8](v, 10 as u8);
+
+	write(1, v.ptr as i64, v.size);
+
+	Vec_pop[u8](v); // remove \n
+	write(1, v.ptr as i64, v.size);
+	
+	Vec_push[u8](v, 10 as u8); // add \n back
+	write(1, v.ptr as i64, v.size);
+
+	Vec_free[u8](v);
 
 	return 0;
 }
