@@ -479,6 +479,11 @@ impl Parser {
             let name = format!("#{}", name);
             self.advance();
             Ident::new(&name, span)
+        } else if let Some(Token::CompileTimeType(name)) = self.peek() {
+            let span = self.peek_span();
+            let name = format!("${}", name);
+            self.advance();
+            Ident::new(&name, span)
         } else {
             self.expect_ident()?
         };
@@ -518,7 +523,7 @@ impl Parser {
     fn peek_is_type_start(&self) -> bool {
         matches!(
             self.peek(),
-            Some(Token::Ident(_) | Token::At | Token::Amp | Token::LParen | Token::CompilerFn(_))
+            Some(Token::Ident(_) | Token::At | Token::Amp | Token::LParen | Token::CompilerFn(_) | Token::CompileTimeType(_))
         )
     }
 

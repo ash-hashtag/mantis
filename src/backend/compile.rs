@@ -125,7 +125,7 @@ pub fn compile_binary(
             ms_ctx.current_module.fn_registry.add_function("malloc", Rc::new(MsDeclaredFunction {
                 func_id: malloc_id,
                 arguments: Default::default(),
-                rets: None,
+                rets: Some(ms_ctx.current_module.type_registry.get_from_str("i64").unwrap().id),
                 fn_type: FunctionType::Extern,
             }));
         }
@@ -151,7 +151,7 @@ pub fn compile_binary(
             ms_ctx.current_module.fn_registry.add_function("memcpy", Rc::new(MsDeclaredFunction {
                 func_id: memcpy_id,
                 arguments: Default::default(),
-                rets: None,
+                rets: Some(ms_ctx.current_module.type_registry.get_from_str("i64").unwrap().id),
                 fn_type: FunctionType::Extern,
             }));
         }
@@ -181,7 +181,7 @@ pub fn compile_binary(
             ms_ctx.current_module.fn_registry.add_function("print", Rc::new(MsDeclaredFunction {
                 func_id: puts_id,
                 arguments: print_arguments,
-                rets: None,
+                rets: Some(ms_ctx.current_module.type_registry.get_from_str("i32").unwrap().id),
                 fn_type: FunctionType::Extern,
             }));
         }
@@ -192,17 +192,31 @@ pub fn compile_binary(
     for declaration in program.declarations {
         match declaration {
             Declaration::Function(function_decl) => {
-                let is_generic = if let Some(TypeExpr::Generic(_, _)) = &function_decl.name {
-                    true
-                } else {
-                    false
-                };
+                let mut auto_generics = Vec::new();
+                let mut function_decl = function_decl;
+                let mut was_explicit_generic = false;
 
-                if is_generic {
+                if let Some(TypeExpr::Generic(_, _)) = &function_decl.name {
+                    was_explicit_generic = true;
+                } else if !function_decl.is_extern {
+                    for param in function_decl.params.iter() {
+                        if matches!(param.ty, TypeExpr::Unknown) {
+                            panic!("Function '{}' has missing type for parameter '{}'. All parameters must have explicit types.", 
+                                function_decl.name.as_ref().and_then(|n| n.as_name()).unwrap_or("unknown"),
+                                param.name.name
+                            );
+                        }
+                    }
+                }
+
+                if was_explicit_generic {
                     let (name, generics) = if let Some(TypeExpr::Generic(base, generics)) =
                         &function_decl.name
                     {
-                        let name = base.as_name().expect("function name must be an identifier").to_string();
+                        let name = base
+                            .as_name()
+                            .expect("function name must be an identifier")
+                            .to_string();
                         let generics = generics
                             .iter()
                             .map(|x| {
@@ -213,7 +227,13 @@ pub fn compile_binary(
                             .collect::<Vec<Box<str>>>();
                         (name, generics)
                     } else {
-                        unreachable!()
+                        let name = function_decl
+                            .name
+                            .as_ref()
+                            .and_then(|n| n.as_name())
+                            .expect("function must have a name")
+                            .to_string();
+                        (name, auto_generics)
                     };
 
                     let template = MsGenericFunction {

@@ -132,6 +132,9 @@ pub enum Token {
     #[regex(r"#[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice()[1..].to_owned())]
     CompilerFn(std::string::String),
 
+    #[regex(r"\$[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice()[1..].to_owned())]
+    CompileTimeType(std::string::String),
+
     // ── Operators (multi-char first) ─────────────────────────
     #[token("@=")]
     AtAssign,

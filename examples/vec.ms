@@ -97,8 +97,8 @@ fn main(argv i32, argc i64) i32 {
 
 	array_set_at[u8](arr, 0, 104 as u8);
 	array_set_at[u8](arr, 1, 101 as u8);
-	array_set_at[u8](arr, 2, 108 as u8);
-	array_set_at[u8](arr, 3, 108 as u8);
+	array_set_at(arr, 2, 108 as u8);
+	array_set_at(arr, 3, 108 as u8);
 	array_set_at[u8](arr, 4, 111 as u8);
 
 	write(1, arr.ptr as i64, 5);

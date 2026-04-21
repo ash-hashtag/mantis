@@ -56,6 +56,7 @@ pub enum MsResolved {
     Generic(Rc<MsGenericTemplate>),
     EnumUnwrap(MsTypeWithId, Box<str>), // enum_ty and variant name
     GenericFunctionInstantiation(MsGenericFunction, Vec<MsResolved>),
+    GenericFunction(MsGenericFunction),
 }
 
 impl MsResolved {
@@ -147,6 +148,9 @@ impl MsModule {
                 }
                 if let Some(func) = self.fn_registry.registry.get(key) {
                     return Some(MsResolved::Function(func.clone()));
+                }
+                if let Some(template) = self.fn_templates.registry.get(key) {
+                    return Some(MsResolved::GenericFunction(template.clone()));
                 }
                 return None;
             }
