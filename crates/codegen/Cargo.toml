@@ -1,0 +1,18 @@
+[package]
+name = "mantis_codegen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mantis_parser.workspace = true
+logos.workspace = true
+cranelift.workspace = true
+cranelift-jit.workspace = true
+cranelift-module.workspace = true
+cranelift-native.workspace = true
+cranelift-object.workspace = true
+log.workspace = true
+env_logger.workspace = true
+linear-map.workspace = true
+rand.workspace = true
+anyhow.workspace = true

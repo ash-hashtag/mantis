@@ -1,0 +1,16 @@
+[package]
+name = "mantis"
+version = "0.0.1"
+edition = "2021"
+
+[[bin]]
+name = "mantis"
+path = "src/main.rs"
+
+[dependencies]
+mantis_parser.workspace = true
+mantis_codegen.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true

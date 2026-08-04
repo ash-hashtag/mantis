@@ -621,6 +621,17 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
+ "env_logger",
+ "log",
+ "mantis_codegen",
+ "mantis_parser",
+]
+
+[[package]]
+name = "mantis_codegen"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "cranelift",
  "cranelift-jit",
  "cranelift-module",
@@ -632,8 +643,6 @@ dependencies = [
  "logos",
  "mantis_parser",
  "rand",
- "serde",
- "toml",
 ]
 
 [[package]]
@@ -642,6 +651,16 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "logos",
+]
+
+[[package]]
+name = "mat"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "toml",
 ]
 
 [[package]]

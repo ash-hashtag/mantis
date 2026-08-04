@@ -8,16 +8,7 @@ use std::{
 
 use clap::Parser;
 
-mod backend;
-pub mod frontend;
-pub mod lexer;
-pub mod libc;
-pub mod ms;
-pub mod native;
-pub mod registries;
-pub mod resolver;
-pub mod scope;
-pub mod utils;
+use mantis_codegen::backend;
 
 #[derive(clap::Parser, Debug)]
 #[command(

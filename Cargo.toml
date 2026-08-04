@@ -1,12 +1,13 @@
-[package]
-name = "mantis"
-version = "0.0.1"
-edition = "2021"
-default-run = "mantis"
+[workspace]
+members = [
+    "crates/parser",
+    "crates/codegen",
+    "crates/cli",
+    "crates/mat",
+]
+resolver = "2"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
+[workspace.dependencies]
 anyhow = "1.0.102"
 clap = { version = "4.6.0", features = ["derive"] }
 cranelift = "0.130.1"
@@ -18,22 +19,10 @@ env_logger = "0.11.10"
 log = "0.4.29"
 logos = "0.14.4"
 rand = "0.10.0"
-mantis_parser = { path = "./mantis_parser" }
 linear-map = "1.2.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 
-
-[workspace]
-members =[
-  "mantis_parser"
-]
-
-
-[[bin]]
-name = "mantis"
-path = "src/main.rs"
-
-[[bin]]
-name = "mat"
-path = "src/mat_main.rs"
+# Internal workspace crates
+mantis_parser = { path = "crates/parser" }
+mantis_codegen = { path = "crates/codegen" }
