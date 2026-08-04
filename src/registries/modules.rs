@@ -16,14 +16,14 @@ use crate::{
 
 use super::{
     functions::{
-        MsDeclaredFunction, MsFunctionRegistry, MsFunctionTemplates, MsTraitGenericTemplates,
-        MsTraitTemplates, MsGenericFunction,
+        MsDeclaredFunction, MsFunctionRegistry, MsFunctionTemplates, MsGenericFunction,
+        MsTraitGenericTemplates, MsTraitTemplates,
     },
     traits::MsTraitRegistry,
     types::{
         EnumWithGenerics, MsGenericTemplate, MsGenericTemplateInner, MsType, MsTypeId,
-        MsTypeNameRegistry, MsTypeRegistry, MsTypeTemplates, MsTypeWithId, TypeNameWithGenerics,
-        MsTypeMethodRegistry,
+        MsTypeMethodRegistry, MsTypeNameRegistry, MsTypeRegistry, MsTypeTemplates, MsTypeWithId,
+        TypeNameWithGenerics,
     },
 };
 
@@ -84,15 +84,26 @@ impl MsModule {
                 return;
             }
         }
-        if let Some(old) = self.aliased_types.insert(alias_name.clone(), alias_type.clone()) {
+        if let Some(old) = self
+            .aliased_types
+            .insert(alias_name.clone(), alias_type.clone())
+        {
             if old.id != alias_type.id {
-                log::warn!("Overwriting type alias {:?} (Old ID: {:?}, New ID: {:?})", alias_name, old.id, alias_type.id);
+                log::warn!(
+                    "Overwriting type alias {:?} (Old ID: {:?}, New ID: {:?})",
+                    alias_name,
+                    old.id,
+                    alias_type.id
+                );
             }
         }
     }
 
     pub fn resolve_from_str(&mut self, type_name: &str) -> Option<MsResolved> {
-        self.resolve(&Type::Named(mantis_parser::ast::Ident::new(type_name, mantis_parser::token::Span::new(0, 0))))
+        self.resolve(&Type::Named(mantis_parser::ast::Ident::new(
+            type_name,
+            mantis_parser::token::Span::new(0, 0),
+        )))
     }
 
     pub fn resolve(&mut self, type_name: &Type) -> Option<MsResolved> {
@@ -104,6 +115,18 @@ impl MsModule {
 
         match type_name {
             Type::Generic(base, generics) => {
+                if let Some(base_name) = base.as_name() {
+                    if base_name.starts_with('$') {
+                        let real_name = match &base_name[1..] {
+                            "Args" => "i64",
+                            "Any" => "i64",
+                            other => "i64",
+                        };
+                        if let Some(ty) = self.type_registry.get_from_str(real_name) {
+                            return Some(MsResolved::Type(ty.clone()));
+                        }
+                    }
+                }
                 {
                     let generic_key = format!("{:?}", type_name);
                     if let Some(ty) = self.type_registry.get_from_str(&generic_key) {
@@ -146,6 +169,29 @@ impl MsModule {
                 if let Some(ty) = self.type_registry.get_from_str(key) {
                     return Some(MsResolved::Type(ty.clone()));
                 }
+                if key.starts_with('$') {
+                    let real_name = match &key[1..] {
+                        "I64" => "i64",
+                        "I32" => "i32",
+                        "I16" => "i16",
+                        "I8" => "i8",
+                        "U64" => "u64",
+                        "U32" => "u32",
+                        "U16" => "u16",
+                        "U8" => "u8",
+                        "F64" => "f64",
+                        "F32" => "f32",
+                        "Bool" => "bool",
+                        "Char" => "char",
+                        "Str" => "StrSlice",
+                        "Any" => "i64",
+                        "Args" => "i64",
+                        other => other,
+                    };
+                    if let Some(ty) = self.type_registry.get_from_str(real_name) {
+                        return Some(MsResolved::Type(ty.clone()));
+                    }
+                }
                 if let Some(func) = self.fn_registry.registry.get(key) {
                     return Some(MsResolved::Function(func.clone()));
                 }
@@ -180,9 +226,15 @@ impl MsModule {
 
             Type::Ref(ty, is_mutable) => {
                 let inner = self.resolve(ty)?.ty().unwrap();
-                let deterministic_name = format!("ref_{}{}", if *is_mutable { "mut_" } else { "" }, inner.id.0);
+                let deterministic_name = format!(
+                    "ref_{}{}",
+                    if *is_mutable { "mut_" } else { "" },
+                    inner.id.0
+                );
                 let ty_val = MsType::Ref(Box::new(inner.ty), *is_mutable);
-                let id = self.type_registry.add_type(deterministic_name, ty_val.clone());
+                let id = self
+                    .type_registry
+                    .add_type(deterministic_name, ty_val.clone());
                 let ref_ty = MsTypeWithId { id, ty: ty_val };
                 return Some(MsResolved::TypeRef(ref_ty, *is_mutable));
             }
@@ -192,21 +244,23 @@ impl MsModule {
                     param_ids.push(self.resolve(p)?.ty()?.id);
                 }
                 let ret_id = self.resolve(ret)?.ty()?.id;
-                
+
                 // Create a dummy function signature for the type
                 let mut arguments = LinearMap::new();
                 for (i, id) in param_ids.into_iter().enumerate() {
                     arguments.insert(format!("p{}", i).into(), id);
                 }
-                
+
                 let signature = MsDeclaredFunction {
                     arguments,
                     rets: Some(ret_id),
                     fn_type: crate::registries::functions::FunctionType::Public,
                     func_id: cranelift_module::FuncId::from_u32(0), // Placeholder
                 };
-                
-                let id = self.type_registry.get_or_add_type(MsType::Function(Rc::new(signature)));
+
+                let id = self
+                    .type_registry
+                    .get_or_add_type(MsType::Function(Rc::new(signature)));
                 let ty = self.type_registry.get_from_type_id(id).unwrap();
                 return Some(MsResolved::Type(MsTypeWithId { id, ty }));
             }

@@ -1,7 +1,7 @@
-error reporting, keeping track of position of the syntax tree
-differentiate enum and module nesting from regulare expressions
-take care of enum expressions misinterpreting as function calls
-references and traits
-drop is broken
-alias generics to real types when generating functions
-enum unwrapping
+[x] error reporting, keeping track of position of the syntax tree
+[x] differentiate enum and module nesting from regulare expressions
+[x] take care of enum expressions misinterpreting as function calls
+[x] references and traits
+[x] drop is broken
+[x] alias generics to real types when generating functions
+[x] enum unwrapping

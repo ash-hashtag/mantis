@@ -31,11 +31,7 @@ impl NodeResult {
         match self {
             NodeResult::Val(val) => val.value,
             NodeResult::Var(var) => fbx.use_var(var.c_var),
-            NodeResult::StructAccessVar {
-                ptr,
-                offset,
-                ty_id,
-            } => {
+            NodeResult::StructAccessVar { ptr, offset, ty_id } => {
                 let ty = ms_ctx
                     .current_module
                     .type_registry
@@ -46,7 +42,7 @@ impl NodeResult {
                 fbx.ins().load(cl_ty, MemFlags::new(), addr, 0)
             }
             NodeResult::EnumUnwrap(_, _) => panic!("Cannot get value of an EnumUnwrap NodeResult"),
-            NodeResult::TypeRef(_) => panic!("Cannot get value of a TypeRef NodeResult"),
+            NodeResult::TypeRef(ty) => fbx.ins().iconst(types::I64, ty.id.0 as i64),
         }
     }
 
@@ -69,11 +65,7 @@ impl NodeResult {
                     fbx.use_var(var.c_var)
                 }
             }
-            NodeResult::StructAccessVar {
-                ptr,
-                offset,
-                ..
-            } => {
+            NodeResult::StructAccessVar { ptr, offset, .. } => {
                 fbx.ins().iadd_imm(*ptr, (*offset) as i64)
             }
             NodeResult::Val(val) => val.value,

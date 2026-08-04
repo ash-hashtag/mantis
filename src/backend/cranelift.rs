@@ -8,10 +8,7 @@ use anyhow::anyhow;
 use codegen::ir::{condcodes, Inst};
 use cranelift::{
     codegen::{
-        ir::{
-            types::{I64},
-            UserExternalName, UserFuncName,
-        },
+        ir::{types::I64, UserExternalName, UserFuncName},
         isa::{CallConv, TargetFrontendConfig, TargetIsa},
         Context,
     },
@@ -91,6 +88,25 @@ fn test_cranelift() -> anyhow::Result<()> {
 
     std::fs::write("/tmp/output.o", bytes)?;
 
+    Ok(())
+}
+
+#[test]
+fn test_compile_mantis_source() -> anyhow::Result<()> {
+    let src = r#"
+        fn add(a, b) {
+            return a + b;
+        }
+
+        fn main() i32 {
+            let x = add(5, 10);
+            return x as i32;
+        }
+    "#;
+
+    let program = mantis_parser::parse(src).expect("parse error");
+    let bytes = crate::backend::compile::compile_binary(program, vec![], "test_module", false)?;
+    assert!(!bytes.is_empty());
     Ok(())
 }
 

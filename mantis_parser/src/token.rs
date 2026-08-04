@@ -92,6 +92,8 @@ pub enum Token {
     Import,
     #[token("use")]
     Use,
+    #[token("where")]
+    Where,
 
     // ── Literals ──────────────────────────────────────────────
     #[token("true", |_| true)]
@@ -284,11 +286,7 @@ pub struct LexError {
 
 impl fmt::Display for LexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "unexpected token '{}' at {}",
-            self.slice, self.span
-        )
+        write!(f, "unexpected token '{}' at {}", self.slice, self.span)
     }
 }
 

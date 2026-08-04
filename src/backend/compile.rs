@@ -8,7 +8,7 @@ use cranelift::{
 use cranelift_module::{default_libcall_names, DataDescription, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use mantis_parser::ast::{
-    Block, Declaration, FnDecl, Program, TypeDef, TypeDefBody, TypeExpr, ImplBlock, TraitDef,
+    Block, Declaration, FnDecl, ImplBlock, Program, TraitDef, TypeDef, TypeDefBody, TypeExpr,
 };
 
 use crate::{
@@ -82,10 +82,10 @@ pub fn compile_binary(
             },
         );
         let str_slice_ty = MsStructType::new(fields, 16);
-        ms_ctx.current_module.type_registry.add_type(
-            "StrSlice",
-            MsType::Struct(Rc::new(str_slice_ty)),
-        );
+        ms_ctx
+            .current_module
+            .type_registry
+            .add_type("StrSlice", MsType::Struct(Rc::new(str_slice_ty)));
     }
 
     // Register pointer template
@@ -98,7 +98,10 @@ pub fn compile_binary(
         let template = MsGenericTemplate {
             name: "pointer".into(),
             generics: vec!["T".into()],
-            inner_type: MsGenericTemplateInner::Type(TypeNameWithGenerics::new("i64".into(), vec![])),
+            inner_type: MsGenericTemplateInner::Type(TypeNameWithGenerics::new(
+                "i64".into(),
+                vec![],
+            )),
         };
         ms_ctx
             .current_module
@@ -121,25 +124,42 @@ pub fn compile_binary(
             let mut malloc_sig = module.make_signature();
             malloc_sig.params.push(AbiParam::new(types::I64).sext());
             malloc_sig.returns.push(AbiParam::new(types::I64).sext());
-            let malloc_id = module.declare_function("malloc", Linkage::Import, &malloc_sig).unwrap();
-            ms_ctx.current_module.fn_registry.add_function("malloc", Rc::new(MsDeclaredFunction {
-                func_id: malloc_id,
-                arguments: Default::default(),
-                rets: Some(ms_ctx.current_module.type_registry.get_from_str("i64").unwrap().id),
-                fn_type: FunctionType::Extern,
-            }));
+            let malloc_id = module
+                .declare_function("malloc", Linkage::Import, &malloc_sig)
+                .unwrap();
+            ms_ctx.current_module.fn_registry.add_function(
+                "malloc",
+                Rc::new(MsDeclaredFunction {
+                    func_id: malloc_id,
+                    arguments: Default::default(),
+                    rets: Some(
+                        ms_ctx
+                            .current_module
+                            .type_registry
+                            .get_from_str("i64")
+                            .unwrap()
+                            .id,
+                    ),
+                    fn_type: FunctionType::Extern,
+                }),
+            );
         }
 
         if !has_decl("free") {
             let mut free_sig = module.make_signature();
             free_sig.params.push(AbiParam::new(types::I64).sext());
-            let free_id = module.declare_function("free", Linkage::Import, &free_sig).unwrap();
-            ms_ctx.current_module.fn_registry.add_function("free", Rc::new(MsDeclaredFunction {
-                func_id: free_id,
-                arguments: Default::default(),
-                rets: None,
-                fn_type: FunctionType::Extern,
-            }));
+            let free_id = module
+                .declare_function("free", Linkage::Import, &free_sig)
+                .unwrap();
+            ms_ctx.current_module.fn_registry.add_function(
+                "free",
+                Rc::new(MsDeclaredFunction {
+                    func_id: free_id,
+                    arguments: Default::default(),
+                    rets: None,
+                    fn_type: FunctionType::Extern,
+                }),
+            );
         }
 
         if !has_decl("memcpy") {
@@ -147,13 +167,25 @@ pub fn compile_binary(
             memcpy_sig.params.push(AbiParam::new(types::I64).sext()); // dest
             memcpy_sig.params.push(AbiParam::new(types::I64).sext()); // src
             memcpy_sig.params.push(AbiParam::new(types::I64).sext()); // size
-            let memcpy_id = module.declare_function("memcpy", Linkage::Import, &memcpy_sig).unwrap();
-            ms_ctx.current_module.fn_registry.add_function("memcpy", Rc::new(MsDeclaredFunction {
-                func_id: memcpy_id,
-                arguments: Default::default(),
-                rets: Some(ms_ctx.current_module.type_registry.get_from_str("i64").unwrap().id),
-                fn_type: FunctionType::Extern,
-            }));
+            let memcpy_id = module
+                .declare_function("memcpy", Linkage::Import, &memcpy_sig)
+                .unwrap();
+            ms_ctx.current_module.fn_registry.add_function(
+                "memcpy",
+                Rc::new(MsDeclaredFunction {
+                    func_id: memcpy_id,
+                    arguments: Default::default(),
+                    rets: Some(
+                        ms_ctx
+                            .current_module
+                            .type_registry
+                            .get_from_str("i64")
+                            .unwrap()
+                            .id,
+                    ),
+                    fn_type: FunctionType::Extern,
+                }),
+            );
         }
 
         if !has_decl("memcmp") {
@@ -162,32 +194,62 @@ pub fn compile_binary(
             memcmp_sig.params.push(AbiParam::new(types::I64).sext()); // s2
             memcmp_sig.params.push(AbiParam::new(types::I64).sext()); // n
             memcmp_sig.returns.push(AbiParam::new(types::I32).sext());
-            let memcmp_id = module.declare_function("memcmp", Linkage::Import, &memcmp_sig).unwrap();
-            ms_ctx.current_module.fn_registry.add_function("memcmp", Rc::new(MsDeclaredFunction {
-                func_id: memcmp_id,
-                arguments: Default::default(),
-                rets: Some(ms_ctx.current_module.type_registry.get_from_str("i32").unwrap().id),
-                fn_type: FunctionType::Extern,
-            }));
+            let memcmp_id = module
+                .declare_function("memcmp", Linkage::Import, &memcmp_sig)
+                .unwrap();
+            ms_ctx.current_module.fn_registry.add_function(
+                "memcmp",
+                Rc::new(MsDeclaredFunction {
+                    func_id: memcmp_id,
+                    arguments: Default::default(),
+                    rets: Some(
+                        ms_ctx
+                            .current_module
+                            .type_registry
+                            .get_from_str("i32")
+                            .unwrap()
+                            .id,
+                    ),
+                    fn_type: FunctionType::Extern,
+                }),
+            );
         }
 
         if !has_decl("print") {
             let mut puts_sig = module.make_signature();
             puts_sig.params.push(AbiParam::new(types::I64).sext());
             puts_sig.returns.push(AbiParam::new(types::I32).sext());
-            let puts_id = module.declare_function("puts", Linkage::Import, &puts_sig).unwrap();
+            let puts_id = module
+                .declare_function("puts", Linkage::Import, &puts_sig)
+                .unwrap();
             let mut print_arguments = LinearMap::new();
-            print_arguments.insert("s".into(), ms_ctx.current_module.type_registry.get_from_str("i64").unwrap().id);
-            ms_ctx.current_module.fn_registry.add_function("print", Rc::new(MsDeclaredFunction {
-                func_id: puts_id,
-                arguments: print_arguments,
-                rets: Some(ms_ctx.current_module.type_registry.get_from_str("i32").unwrap().id),
-                fn_type: FunctionType::Extern,
-            }));
+            print_arguments.insert(
+                "s".into(),
+                ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_from_str("i64")
+                    .unwrap()
+                    .id,
+            );
+            ms_ctx.current_module.fn_registry.add_function(
+                "print",
+                Rc::new(MsDeclaredFunction {
+                    func_id: puts_id,
+                    arguments: print_arguments,
+                    rets: Some(
+                        ms_ctx
+                            .current_module
+                            .type_registry
+                            .get_from_str("i32")
+                            .unwrap()
+                            .id,
+                    ),
+                    fn_type: FunctionType::Extern,
+                }),
+            );
         }
     }
-
-
 
     for declaration in program.declarations {
         match declaration {
@@ -198,43 +260,47 @@ pub fn compile_binary(
 
                 if let Some(TypeExpr::Generic(_, _)) = &function_decl.name {
                     was_explicit_generic = true;
-                } else if !function_decl.is_extern {
-                    for param in function_decl.params.iter() {
+                } else if !function_decl.where_clause.is_empty() {
+                    was_explicit_generic = true;
+                }
+
+                if !function_decl.is_extern {
+                    for param in function_decl.params.iter_mut() {
                         if matches!(param.ty, TypeExpr::Unknown) {
-                            panic!("Function '{}' has missing type for parameter '{}'. All parameters must have explicit types.", 
-                                function_decl.name.as_ref().and_then(|n| n.as_name()).unwrap_or("unknown"),
-                                param.name.name
-                            );
+                            let gen_name = format!("_{}", param.name.name);
+                            param.ty = TypeExpr::Named(mantis_parser::ast::Ident::new(
+                                &gen_name, param.span,
+                            ));
+                            auto_generics.push(gen_name.into_boxed_str());
                         }
                     }
                 }
 
-                if was_explicit_generic {
-                    let (name, generics) = if let Some(TypeExpr::Generic(base, generics)) =
-                        &function_decl.name
-                    {
-                        let name = base
-                            .as_name()
-                            .expect("function name must be an identifier")
-                            .to_string();
-                        let generics = generics
-                            .iter()
-                            .map(|x| {
-                                x.as_name()
-                                    .expect("generic param must be an identifier")
-                                    .into()
-                            })
-                            .collect::<Vec<Box<str>>>();
-                        (name, generics)
-                    } else {
-                        let name = function_decl
-                            .name
-                            .as_ref()
-                            .and_then(|n| n.as_name())
-                            .expect("function must have a name")
-                            .to_string();
-                        (name, auto_generics)
-                    };
+                if was_explicit_generic || !auto_generics.is_empty() {
+                    let (name, generics) =
+                        if let Some(TypeExpr::Generic(base, generics)) = &function_decl.name {
+                            let name = base
+                                .as_name()
+                                .expect("function name must be an identifier")
+                                .to_string();
+                            let generics = generics
+                                .iter()
+                                .map(|x| {
+                                    x.as_name()
+                                        .expect("generic param must be an identifier")
+                                        .into()
+                                })
+                                .collect::<Vec<Box<str>>>();
+                            (name, generics)
+                        } else {
+                            let name = function_decl
+                                .name
+                                .as_ref()
+                                .and_then(|n| n.as_name())
+                                .expect("function must have a name")
+                                .to_string();
+                            (name, auto_generics)
+                        };
 
                     let template = MsGenericFunction {
                         decl: Rc::new(function_decl),
@@ -268,7 +334,11 @@ pub fn compile_binary(
                                     .map(|x| {
                                         x.as_name()
                                             .or_else(|| {
-                                                if let mantis_parser::ast::TypeExpr::Generic(base, _) = x {
+                                                if let mantis_parser::ast::TypeExpr::Generic(
+                                                    base,
+                                                    _,
+                                                ) = x
+                                                {
                                                     base.as_name()
                                                 } else {
                                                     None
@@ -328,7 +398,8 @@ pub fn compile_binary(
                                 let key = base
                                     .as_name()
                                     .or_else(|| {
-                                        if let mantis_parser::ast::TypeExpr::Generic(b, _) = &**base {
+                                        if let mantis_parser::ast::TypeExpr::Generic(b, _) = &**base
+                                        {
                                             b.as_name()
                                         } else {
                                             None
@@ -364,15 +435,18 @@ pub fn compile_binary(
                                             let ty = ms_ctx
                                                 .current_module
                                                 .resolve(&field.ty)
-                                                .expect(&format!("unable to resolve field type {:?}", field.ty))
+                                                .expect(&format!(
+                                                    "unable to resolve field type {:?}",
+                                                    field.ty
+                                                ))
                                                 .ty()
                                                 .unwrap();
                                             ms_struct.add_field(field.name.name.as_str(), ty);
                                         }
-                                        ms_ctx.current_module.type_registry.add_type(
-                                            alias,
-                                            MsType::Struct(Rc::new(ms_struct)),
-                                        );
+                                        ms_ctx
+                                            .current_module
+                                            .type_registry
+                                            .add_type(alias, MsType::Struct(Rc::new(ms_struct)));
                                     }
                                     TypeDefBody::Enum(enum_def) => {
                                         let mut ms_enum = MsEnumType::default();
@@ -391,10 +465,10 @@ pub fn compile_binary(
                                             };
                                             ms_enum.add_variant(variant.name.name.as_str(), ty);
                                         }
-                                        ms_ctx.current_module.type_registry.add_type(
-                                            alias,
-                                            MsType::Enum(Rc::new(ms_enum)),
-                                        );
+                                        ms_ctx
+                                            .current_module
+                                            .type_registry
+                                            .add_type(alias, MsType::Enum(Rc::new(ms_enum)));
                                     }
                                 }
                             }
@@ -442,12 +516,18 @@ pub fn compile_binary(
                     let for_type = if let Some(ref for_ty) = impl_block.for_type {
                         ms_ctx.current_module.resolve(for_ty).unwrap().ty().unwrap()
                     } else {
-                        ms_ctx.current_module.resolve(&impl_block.trait_name).unwrap().ty().unwrap()
+                        ms_ctx
+                            .current_module
+                            .resolve(&impl_block.trait_name)
+                            .unwrap()
+                            .ty()
+                            .unwrap()
                     };
 
-                    ms_ctx
-                        .current_module
-                        .add_alias(TypeNameWithGenerics::new("Self".into(), vec![]), for_type.clone());
+                    ms_ctx.current_module.add_alias(
+                        TypeNameWithGenerics::new("Self".into(), vec![]),
+                        for_type.clone(),
+                    );
 
                     let trait_name = if impl_block.for_type.is_some() {
                         Some(
@@ -495,18 +575,26 @@ pub fn compile_binary(
 
                     for function in impl_block.methods {
                         let name_expr = function.name.as_ref().unwrap();
-                        let name = name_expr.as_name().or_else(|| {
-                            if let TypeExpr::Generic(base, _) = name_expr {
-                                base.as_name()
-                            } else { None }
-                        }).expect(&format!("method name error in {:?}", name_expr));
+                        let name = name_expr
+                            .as_name()
+                            .or_else(|| {
+                                if let TypeExpr::Generic(base, _) = name_expr {
+                                    base.as_name()
+                                } else {
+                                    None
+                                }
+                            })
+                            .expect(&format!("method name error in {:?}", name_expr));
                         let func_name: Box<str> = name.into();
                         let template = MsGenericFunction {
                             decl: Rc::new(function),
                             generics: generics.clone(),
                         };
 
-                        let for_type_node = impl_block.for_type.as_ref().unwrap_or(&impl_block.trait_name);
+                        let for_type_node = impl_block
+                            .for_type
+                            .as_ref()
+                            .unwrap_or(&impl_block.trait_name);
                         let ty_name = TypeNameWithGenerics::from_type(for_type_node).unwrap().name;
 
                         let registry = if let Some(registry) = ms_ctx
@@ -546,10 +634,9 @@ pub fn compile_binary(
             // Set aliases
             for (name, res) in inst.template.generics.iter().zip(inst.real_types.iter()) {
                 if let Some(ty) = res.ty() {
-                    ms_ctx.current_module.add_alias(
-                        TypeNameWithGenerics::new(name.clone(), vec![]),
-                        ty,
-                    );
+                    ms_ctx
+                        .current_module
+                        .add_alias(TypeNameWithGenerics::new(name.clone(), vec![]), ty);
                 }
             }
 
@@ -588,4 +675,3 @@ pub fn compile_main_fn(
         .declare_function("main", Linkage::Preemptible, &ctx.func.signature)
         .unwrap();
 }
-

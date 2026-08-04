@@ -47,10 +47,18 @@ pub struct UseDecl {
 // ── Function ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
+pub struct WhereBound {
+    pub target: TypeExpr,
+    pub bounds: Vec<TypeExpr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct FnDecl {
     pub name: Option<TypeExpr>,
     pub params: Vec<Param>,
     pub return_type: Option<TypeExpr>,
+    pub where_clause: Vec<WhereBound>,
     pub body: Option<Block>,
     pub is_extern: bool,
     pub trailing_params: Option<Vec<Param>>,
@@ -169,7 +177,7 @@ impl TypeExpr {
             }
             TypeExpr::Ref(inner, _) => inner.span(),
             TypeExpr::Function(params, ret) => {
-                let mut s = params.first().map(|x| x.span()).unwrap_or(ret.span());
+                let s = params.first().map(|x| x.span()).unwrap_or(ret.span());
                 s.merge(ret.span())
             }
             TypeExpr::Unknown => Span::new(0, 0),
@@ -207,25 +215,13 @@ pub enum Statement {
         span: Span,
     },
     /// `return expr;`
-    Return {
-        value: Option<Expr>,
-        span: Span,
-    },
+    Return { value: Option<Expr>, span: Span },
     /// `break label?;`
-    Break {
-        label: Option<Ident>,
-        span: Span,
-    },
+    Break { label: Option<Ident>, span: Span },
     /// `continue label?;`
-    Continue {
-        label: Option<Ident>,
-        span: Span,
-    },
+    Continue { label: Option<Ident>, span: Span },
     /// Expression used as a statement: `foo();`
-    Expr {
-        expr: Expr,
-        span: Span,
-    },
+    Expr { expr: Expr, span: Span },
 }
 
 // ── If / Elif / Else ─────────────────────────────────────────────────────────
@@ -326,15 +322,9 @@ pub enum Expr {
         span: Span,
     },
     /// Array initialization: `[1, 2, 3]`
-    ArrayInit {
-        elements: Vec<Expr>,
-        span: Span,
-    },
+    ArrayInit { elements: Vec<Expr>, span: Span },
     /// Lambda: `fn (x i32) i64 { return x as i64; }`
-    Lambda {
-        decl: Box<FnDecl>,
-        span: Span,
-    },
+    Lambda { decl: Box<FnDecl>, span: Span },
     /// Compiler intrinsic call: `#import("libc")`
     CompilerCall {
         name: String,
@@ -350,10 +340,7 @@ pub enum Expr {
         span: Span,
     },
     /// Propagate operator: `expr?`
-    Propagate {
-        expr: Box<Expr>,
-        span: Span,
-    },
+    Propagate { expr: Box<Expr>, span: Span },
     /// Generic arguments on an expression: `foo[T]`, `obj.method[T]`
     Generic {
         base: Box<Expr>,
@@ -420,9 +407,9 @@ pub enum BinOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
-    Neg,      // -x
-    Deref,    // *x
-    AddrOf,   // @x
+    Neg,    // -x
+    Deref,  // *x
+    AddrOf, // @x
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -1,10 +1,13 @@
 use crate::ms::MsContext;
 use crate::native::instructions::NodeResult;
-use crate::registries::functions::{FunctionType, MsDeclaredFunction, MsInstantiation, MsGenericFunction};
+use crate::registries::functions::{
+    FunctionType, MsDeclaredFunction, MsGenericFunction, MsInstantiation,
+};
 use crate::registries::modules::MsResolved;
 use crate::registries::structs::MsEnumType;
 use crate::registries::types::{
-    binary_cmp_op_to_condcode_intcc, MsNativeType, MsType, MsTypeId, MsTypeWithId, TypeNameWithGenerics,
+    binary_cmp_op_to_condcode_intcc, MsNativeType, MsType, MsTypeId, MsTypeWithId,
+    TypeNameWithGenerics,
 };
 use crate::registries::variable::{MsVal, MsVar};
 use crate::registries::MsRegistryExt;
@@ -100,7 +103,10 @@ pub fn compile_function(
                     Some(ty.id)
                 } else if let Some(body) = &function.body {
                     // Try to infer return type from body if it's not a known type (e.g. _TRet)
-                    log::info!("Trying to infer return type for function {} from body", name);
+                    log::info!(
+                        "Trying to infer return type for function {} from body",
+                        name
+                    );
                     let inferred = infer_return_type_from_body(
                         body,
                         module,
@@ -143,6 +149,47 @@ pub fn compile_function(
             } else {
                 None
             }
+        } else if let Some(body) = &function.body {
+            log::info!(
+                "Trying to infer return type for function {} from body",
+                name
+            );
+            let inferred = infer_return_type_from_body(
+                body,
+                module,
+                ms_ctx,
+                &function.params,
+                trait_on_type.as_ref(),
+            );
+            if let Some(ty_id) = inferred {
+                let ty = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_from_type_id(ty_id)
+                    .unwrap();
+                log::info!("Inferred return type for {} as {:?}", name, ty_id);
+                match ty {
+                    MsType::Native(nty) => {
+                        ctx.func.signature.returns.push(nty.to_abi_param().unwrap());
+                    }
+                    MsType::Struct(struct_ty) => {
+                        returns_struct_or_enum = true;
+                        ctx.func.signature.params.push(struct_ty.to_abi_param());
+                    }
+                    MsType::Enum(enum_ty) => {
+                        returns_struct_or_enum = true;
+                        ctx.func.signature.params.push(enum_ty.to_abi_param());
+                    }
+                    MsType::Ref(_, _) => {
+                        ctx.func.signature.returns.push(AbiParam::new(types::I64));
+                    }
+                    _ => todo!(),
+                };
+                Some(ty_id)
+            } else {
+                log::warn!("Could not infer return type for {} from body", name);
+                None
+            }
         } else {
             None
         }
@@ -150,16 +197,20 @@ pub fn compile_function(
 
     let mut fn_arguments = LinearMap::<Box<str>, MsTypeId>::with_capacity(function.params.len());
     for (i, param) in function.params.iter().enumerate() {
-        let ty = if let (Some(ref trait_on_type), "self") = (&trait_on_type, param.name.name.as_str()) {
-            trait_on_type.on_type.clone()
-        } else {
-            ms_ctx
-                .current_module
-                .resolve(&param.ty)
-                .expect(&format!("failed to resolve type for parameter {} of function {}", param.name.name, name))
-                .ty()
-                .unwrap()
-        };
+        let ty =
+            if let (Some(ref trait_on_type), "self") = (&trait_on_type, param.name.name.as_str()) {
+                trait_on_type.on_type.clone()
+            } else {
+                ms_ctx
+                    .current_module
+                    .resolve(&param.ty)
+                    .expect(&format!(
+                        "failed to resolve type for parameter {} of function {}",
+                        param.name.name, name
+                    ))
+                    .ty()
+                    .unwrap()
+            };
 
         ctx.func
             .signature
@@ -595,7 +646,10 @@ pub fn compile_node(
                         let rhs = compile_node(rhs, module, fbx, ms_ctx).unwrap();
                         compile_assignment(variable_name, rhs, module, fbx, ms_ctx);
                     }
-                    Expr::Field { .. } | Expr::Unary { op: UnaryOp::Deref, .. } => {
+                    Expr::Field { .. }
+                    | Expr::Unary {
+                        op: UnaryOp::Deref, ..
+                    } => {
                         let lhs_node = compile_node(lhs, module, fbx, ms_ctx).unwrap();
                         let rhs_node = compile_node(rhs, module, fbx, ms_ctx).unwrap();
                         compile_assignment_on_pointers(lhs_node, rhs_node, module, fbx, ms_ctx);
@@ -823,16 +877,177 @@ pub fn compile_node(
                         .get_from_type_id(var.ty_id)
                         .unwrap();
                     let ref_ty = MsType::Ref(Box::new(ty.clone()), var.is_mutable);
-                    let ref_ty_id = ms_ctx
-                        .current_module
-                        .type_registry
-                        .get_or_add_type(ref_ty);
+                    let ref_ty_id = ms_ctx.current_module.type_registry.get_or_add_type(ref_ty);
                     return Some(NodeResult::Val(MsVal::new(ref_ty_id, ptr)));
                 }
                 _ => todo!("address-of only implemented for identifiers"),
             },
         },
         Expr::Call { callee, args, span } => {
+            if let Expr::Field { object, field, .. } = &**callee {
+                if let Some(obj_res) = compile_node(object, module, fbx, ms_ctx) {
+                    let obj_ty_id = obj_res.ty();
+                    let obj_ty = ms_ctx
+                        .current_module
+                        .type_registry
+                        .get_from_type_id(obj_ty_id)
+                        .unwrap();
+                    let method_name = field.name.as_str();
+
+                    match (&obj_ty, method_name) {
+                        (MsType::Native(MsNativeType::F64), "floor") => {
+                            let val = obj_res.value(fbx, ms_ctx);
+                            let res = fbx.ins().floor(val);
+                            return Some(NodeResult::Val(MsVal::new(obj_ty_id, res)));
+                        }
+                        (MsType::Native(MsNativeType::F32), "floor") => {
+                            let val = obj_res.value(fbx, ms_ctx);
+                            let res = fbx.ins().floor(val);
+                            return Some(NodeResult::Val(MsVal::new(obj_ty_id, res)));
+                        }
+                        (MsType::Native(MsNativeType::I64 | MsNativeType::I32), "floor") => {
+                            let val = obj_res.value(fbx, ms_ctx);
+                            return Some(NodeResult::Val(MsVal::new(obj_ty_id, val)));
+                        }
+                        (MsType::Native(MsNativeType::F64 | MsNativeType::F32), "to_int") => {
+                            let val = obj_res.value(fbx, ms_ctx);
+                            let res = fbx.ins().fcvt_to_sint(types::I64, val);
+                            let i64_ty = ms_ctx
+                                .current_module
+                                .type_registry
+                                .get_from_str("i64")
+                                .unwrap();
+                            return Some(NodeResult::Val(MsVal::new(i64_ty.id, res)));
+                        }
+                        (MsType::Native(MsNativeType::I64 | MsNativeType::I32), "to_int") => {
+                            let val = obj_res.value(fbx, ms_ctx);
+                            let i64_ty = ms_ctx
+                                .current_module
+                                .type_registry
+                                .get_from_str("i64")
+                                .unwrap();
+                            return Some(NodeResult::Val(MsVal::new(i64_ty.id, val)));
+                        }
+                        (MsType::Native(MsNativeType::I64 | MsNativeType::I32), "to_float") => {
+                            let val = obj_res.value(fbx, ms_ctx);
+                            let res = fbx.ins().fcvt_from_sint(types::F64, val);
+                            let f64_ty = ms_ctx
+                                .current_module
+                                .type_registry
+                                .get_from_str("f64")
+                                .unwrap();
+                            return Some(NodeResult::Val(MsVal::new(f64_ty.id, res)));
+                        }
+                        (MsType::Native(MsNativeType::F64 | MsNativeType::F32), "to_float") => {
+                            let val = obj_res.value(fbx, ms_ctx);
+                            let f64_ty = ms_ctx
+                                .current_module
+                                .type_registry
+                                .get_from_str("f64")
+                                .unwrap();
+                            return Some(NodeResult::Val(MsVal::new(f64_ty.id, val)));
+                        }
+                        (MsType::Struct(sty), "len") => {
+                            if let Some(f) = sty.get_field("len") {
+                                let ptr = obj_res.value(fbx, ms_ctx);
+                                let addr = fbx.ins().iadd_imm(ptr, f.offset as i64);
+                                let len_val = fbx.ins().load(types::I64, MemFlags::new(), addr, 0);
+                                let i64_ty = ms_ctx
+                                    .current_module
+                                    .type_registry
+                                    .get_from_str("i64")
+                                    .unwrap();
+                                return Some(NodeResult::Val(MsVal::new(i64_ty.id, len_val)));
+                            }
+                        }
+                        _ => {}
+                    }
+
+                    let maybe_func = ms_ctx
+                        .current_module
+                        .type_fn_registry
+                        .map
+                        .get(&obj_ty_id)
+                        .and_then(|entry| entry.registry.get(method_name).cloned());
+
+                    if let Some(func) = maybe_func {
+                        let mut arg_results = Vec::new();
+                        if !matches!(obj_res, NodeResult::TypeRef(_)) {
+                            arg_results.push(obj_res);
+                        }
+                        for arg in args {
+                            arg_results.push(compile_node(arg, module, fbx, ms_ctx).unwrap());
+                        }
+
+                        let mut call_arg_values = Vec::with_capacity(arg_results.len() + 1);
+                        let mut returns_a_struct_ptr: Option<Value> = None;
+
+                        if let Some(fn_ret_ty) = func.rets {
+                            let return_ty = ms_ctx
+                                .current_module
+                                .type_registry
+                                .get_from_type_id(fn_ret_ty)
+                                .unwrap();
+
+                            match return_ty {
+                                MsType::Native(_nty) => {}
+                                MsType::Struct(sty) => {
+                                    let stackslot =
+                                        fbx.create_sized_stack_slot(StackSlotData::new(
+                                            StackSlotKind::ExplicitSlot,
+                                            sty.size() as u32,
+                                            0,
+                                        ));
+                                    let ptr = fbx.ins().stack_addr(types::I64, stackslot, 0);
+                                    call_arg_values.push(ptr);
+                                    returns_a_struct_ptr = Some(ptr);
+                                }
+                                MsType::Enum(ety) => {
+                                    let stackslot =
+                                        fbx.create_sized_stack_slot(StackSlotData::new(
+                                            StackSlotKind::ExplicitSlot,
+                                            ety.size() as u32,
+                                            0,
+                                        ));
+                                    let ptr = fbx.ins().stack_addr(types::I64, stackslot, 0);
+                                    call_arg_values.push(ptr);
+                                    returns_a_struct_ptr = Some(ptr);
+                                }
+                                MsType::Ref(_, _) => {}
+                                _ => todo!(),
+                            }
+                        }
+
+                        for a in arg_results {
+                            call_arg_values.push(a.value(fbx, ms_ctx));
+                        }
+
+                        let func_ref = module.declare_func_in_func(func.func_id, fbx.func);
+                        let inst = fbx.ins().call(func_ref, &call_arg_values);
+                        let result = fbx.inst_results(inst);
+
+                        if !result.is_empty() {
+                            return Some(NodeResult::Val(MsVal::new(
+                                func.rets.unwrap(),
+                                result[0],
+                            )));
+                        } else if let Some(ptr) = returns_a_struct_ptr {
+                            return Some(NodeResult::Val(MsVal::new(func.rets.unwrap(), ptr)));
+                        } else {
+                            let v0 = fbx.ins().iconst(types::I64, 0);
+                            return Some(NodeResult::Val(MsVal::new(
+                                ms_ctx
+                                    .current_module
+                                    .type_registry
+                                    .get_type_id("void")
+                                    .unwrap_or(MsTypeId(0)),
+                                v0,
+                            )));
+                        }
+                    }
+                }
+            }
+
             let fn_name = callee.as_ref();
             let mut arg_results = Vec::new();
             for arg in args {
@@ -874,14 +1089,15 @@ pub fn compile_node(
                         .get_from_type_id(current_ty_id)
                         .unwrap();
                     if let MsType::Ref(inner, _) = ty {
-                        if let Some(inner_id) = ms_ctx
-                            .current_module
-                            .type_registry
-                            .get_id_from_type(&inner)
+                        if let Some(inner_id) =
+                            ms_ctx.current_module.type_registry.get_id_from_type(&inner)
                         {
                             current_ty_id = inner_id;
-                            type_entry =
-                                ms_ctx.current_module.type_fn_registry.map.get(&current_ty_id);
+                            type_entry = ms_ctx
+                                .current_module
+                                .type_fn_registry
+                                .map
+                                .get(&current_ty_id);
                         }
                     }
                 }
@@ -988,7 +1204,13 @@ pub fn compile_node(
                     )
                 }
                 MsResolved::GenericFunctionInstantiation(template, real_types) => {
-                    instantiate_generic_function(template, real_types, &fn_type_expr, ms_ctx, module)
+                    instantiate_generic_function(
+                        template,
+                        real_types,
+                        &fn_type_expr,
+                        ms_ctx,
+                        module,
+                    )
                 }
                 _ => unreachable!(),
             };
@@ -1041,6 +1263,23 @@ pub fn compile_node(
 
                 // Auto-unwrap StrSlice to pointer if i64 is expected
                 if let Some(&expected_ty_id) = func.arguments.values().nth(arg_idx) {
+                    let expected_ty = ms_ctx
+                        .current_module
+                        .type_registry
+                        .get_from_type_id(expected_ty_id);
+                    let actual_ty = ms_ctx
+                        .current_module
+                        .type_registry
+                        .get_from_type_id(arg_val.ty());
+
+                    if let (Some(MsType::Native(actual)), Some(MsType::Native(expected))) =
+                        (actual_ty, expected_ty)
+                    {
+                        if actual != expected {
+                            val = actual.cast_to(val, &MsType::Native(expected), fbx);
+                        }
+                    }
+
                     let str_slice_ty = ms_ctx
                         .current_module
                         .type_registry
@@ -1077,7 +1316,10 @@ pub fn compile_node(
 
             if !result.is_empty() {
                 let return_value = result[0];
-                return Some(NodeResult::Val(MsVal::new(func.rets.unwrap(), return_value)));
+                return Some(NodeResult::Val(MsVal::new(
+                    func.rets.unwrap(),
+                    return_value,
+                )));
             } else if let Some(ptr) = returns_a_struct_ptr {
                 return Some(NodeResult::Val(MsVal::new(func.rets.unwrap(), ptr)));
             }
@@ -1088,11 +1330,16 @@ pub fn compile_node(
                 return Some(NodeResult::Var(var.clone()));
             } else if let Some(ty) = ms_ctx.current_module.type_registry.get_from_str(var_name) {
                 return Some(NodeResult::TypeRef(ty.clone()));
-            } else if let Some(template) = ms_ctx.current_module.type_templates.registry.get(var_name) {
+            } else if let Some(template) =
+                ms_ctx.current_module.type_templates.registry.get(var_name)
+            {
                 // If it's a template, we don't have a concrete type yet, but we can still return a TypeRef with a dummy id if needed?
                 // Actually, EnumUnwrap might handle it.
-                 // For now, let's just return a placeholder or handle it in Field access.
-                 panic!("Template access not fully implemented for ident {}", var_name);
+                // For now, let's just return a placeholder or handle it in Field access.
+                panic!(
+                    "Template access not fully implemented for ident {}",
+                    var_name
+                );
             } else {
                 panic!("undefined {} word or type name in current scope", var_name,);
             }
@@ -1102,6 +1349,28 @@ pub fn compile_node(
             field,
             span: _,
         } => {
+            let ty_expr = field_access_to_type_expr(node);
+            if let Some(resolved) = ms_ctx.current_module.resolve(&ty_expr) {
+                match resolved {
+                    MsResolved::Type(ty_with_id) => return Some(NodeResult::TypeRef(ty_with_id)),
+                    MsResolved::EnumUnwrap(ty, variant) => {
+                        let enum_inner = match &ty.ty {
+                            MsType::Enum(e) => e,
+                            _ => panic!("Expected enum type"),
+                        };
+                        let slot = fbx.create_sized_stack_slot(StackSlotData::new(
+                            StackSlotKind::ExplicitSlot,
+                            enum_inner.size() as u32,
+                            0,
+                        ));
+                        let ptr = fbx.ins().stack_addr(types::I64, slot, 0);
+                        enum_inner.set_variant(ptr, &variant, None, fbx, ms_ctx, module);
+                        return Some(NodeResult::Val(MsVal::new(ty.id, ptr)));
+                    }
+                    _ => {}
+                }
+            }
+
             let obj_node = compile_node(object, module, fbx, ms_ctx)?;
             let child = MsTokenType::Named(field.clone());
             return Some(compile_nested_struct_access(
@@ -1271,11 +1540,13 @@ pub fn compile_node(
         Expr::Lambda { decl, span } => {
             let lambda_name = format!("_lambda_{}", random_string(8));
             let mut lambda_decl = *decl.clone();
-            lambda_decl.name = Some(mantis_parser::ast::TypeExpr::Named(mantis_parser::ast::Ident::new(&lambda_name, *span)));
-            
+            lambda_decl.name = Some(mantis_parser::ast::TypeExpr::Named(
+                mantis_parser::ast::Ident::new(&lambda_name, *span),
+            ));
+
             let mut lambda_ctx = module.make_context();
             let mut lambda_fbx_ctx = cranelift::prelude::FunctionBuilderContext::new();
-            
+
             let declared_func = compile_function(
                 lambda_decl,
                 module,
@@ -1287,9 +1558,14 @@ pub fn compile_node(
             );
 
             let local_func = module.declare_func_in_func(declared_func.func_id, fbx.func);
-            let addr = fbx.ins().func_addr(cranelift::prelude::types::I64, local_func);
-            
-            let fn_ty = ms_ctx.current_module.type_registry.get_or_add_type(MsType::Function(declared_func));
+            let addr = fbx
+                .ins()
+                .func_addr(cranelift::prelude::types::I64, local_func);
+
+            let fn_ty = ms_ctx
+                .current_module
+                .type_registry
+                .get_or_add_type(MsType::Function(declared_func));
             return Some(NodeResult::Val(MsVal::new(fn_ty, addr)));
         }
         Expr::Generic { base, params, span } => {
@@ -1352,7 +1628,9 @@ pub fn compile_node(
                 return Some(NodeResult::Val(MsVal::new(i64_ty.id, value)));
             }
             if name == "as_ref" || name == "ref" {
-                let arg = args.first().expect(&format!("#{} requires an argument", name));
+                let arg = args
+                    .first()
+                    .expect(&format!("#{} requires an argument", name));
                 let res = compile_node(arg, module, fbx, ms_ctx)
                     .expect(&format!("failed to compile argument for #{}", name));
                 let inner_ty_id = res.ty();
@@ -1366,12 +1644,12 @@ pub fn compile_node(
                     MsType::Ref(inner, _) => MsType::Ref(inner, false),
                     _ => MsType::Ref(Box::new(inner_ty.clone()), false),
                 };
-                let ref_ty_id = ms_ctx
-                    .current_module
-                    .type_registry
-                    .get_or_add_type(ref_ty);
+                let ref_ty_id = ms_ctx.current_module.type_registry.get_or_add_type(ref_ty);
 
-                return Some(NodeResult::Val(MsVal::new(ref_ty_id, res.value(fbx, ms_ctx))));
+                return Some(NodeResult::Val(MsVal::new(
+                    ref_ty_id,
+                    res.value(fbx, ms_ctx),
+                )));
             }
             if name == "ptr" {
                 let arg = args.first().expect("#ptr requires an argument");
@@ -1388,12 +1666,12 @@ pub fn compile_node(
                     MsType::Ref(inner, _) => MsType::Ref(inner, true),
                     _ => MsType::Ref(Box::new(inner_ty.clone()), true),
                 };
-                let ptr_ty_id = ms_ctx
-                    .current_module
-                    .type_registry
-                    .get_or_add_type(ptr_ty);
+                let ptr_ty_id = ms_ctx.current_module.type_registry.get_or_add_type(ptr_ty);
 
-                return Some(NodeResult::Val(MsVal::new(ptr_ty_id, res.value(fbx, ms_ctx))));
+                return Some(NodeResult::Val(MsVal::new(
+                    ptr_ty_id,
+                    res.value(fbx, ms_ctx),
+                )));
             }
             if name == "free" {
                 let arg = args.first().expect("#free requires an argument");
@@ -1424,12 +1702,13 @@ pub fn compile_node(
                 let size = res.value(fbx, ms_ctx);
                 let inst = fbx.ins().call(malloc_ref, &[size]);
                 let ptr = fbx.inst_results(inst)[0];
-                let u8_ty = ms_ctx.current_module.type_registry.get_from_str("u8").unwrap();
-                let ptr_ty = MsType::Ref(Box::new(u8_ty.ty.clone()), true);
-                let ptr_ty_id = ms_ctx
+                let u8_ty = ms_ctx
                     .current_module
                     .type_registry
-                    .get_or_add_type(ptr_ty);
+                    .get_from_str("u8")
+                    .unwrap();
+                let ptr_ty = MsType::Ref(Box::new(u8_ty.ty.clone()), true);
+                let ptr_ty_id = ms_ctx.current_module.type_registry.get_or_add_type(ptr_ty);
                 return Some(NodeResult::Val(MsVal::new(ptr_ty_id, ptr)));
             }
             if name == "size_of" {
@@ -1450,6 +1729,36 @@ pub fn compile_node(
                     .get_from_str("i64")
                     .unwrap();
                 let val = fbx.ins().iconst(types::I64, size as i64);
+                return Some(NodeResult::Val(MsVal::new(i64_ty.id, val)));
+            }
+            if name == "type" {
+                let Some(arg) = args.first() else {
+                    panic!("#type requires an argument");
+                };
+                let ty_id = match arg {
+                    Expr::Ident(id) => {
+                        if let Some(var) = ms_ctx.var_scopes.find_variable(&id.name) {
+                            var.ty_id
+                        } else if let Some(ty) =
+                            ms_ctx.current_module.type_registry.get_from_str(&id.name)
+                        {
+                            ty.id
+                        } else {
+                            let res = compile_node(arg, module, fbx, ms_ctx);
+                            res.map(|r| r.ty()).unwrap_or(MsTypeId(0))
+                        }
+                    }
+                    _ => {
+                        let res = compile_node(arg, module, fbx, ms_ctx);
+                        res.map(|r| r.ty()).unwrap_or(MsTypeId(0))
+                    }
+                };
+                let i64_ty = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_from_str("i64")
+                    .unwrap();
+                let val = fbx.ins().iconst(types::I64, ty_id.0 as i64);
                 return Some(NodeResult::Val(MsVal::new(i64_ty.id, val)));
             }
             todo!("compiler call {}", name);
@@ -1507,7 +1816,7 @@ pub fn compile_nested_struct_access(
     // if let Some(var) = ms_ctx.var_scopes.find_variable(&var_name).cloned() {
 
     let var = root;
-    
+
     if let NodeResult::TypeRef(ty) = &var {
         let ty_val = ms_ctx
             .current_module
@@ -1546,87 +1855,85 @@ pub fn compile_nested_struct_access(
             }
             return var;
         }
-        MsType::Struct(struct_ty) => {
-            match child {
-                MsTokenType::Named(ident) => {
-                    let field_name = ident.name.as_str();
-                    let field = struct_ty
-                        .get_field(field_name)
-                        .expect(&format!("unknown field in struct {}", field_name));
+        MsType::Struct(struct_ty) => match child {
+            MsTokenType::Named(ident) => {
+                let field_name = ident.name.as_str();
+                let field = struct_ty
+                    .get_field(field_name)
+                    .expect(&format!("unknown field in struct {}", field_name));
 
-                    let offset = field.offset;
-                    let target_ty_id = field.ty;
+                let offset = field.offset;
+                let target_ty_id = field.ty;
 
-                    match var {
-                        NodeResult::Var(v) => {
-                            if let Some(ss) = v.stack_slot {
-                                let ptr = fbx.ins().stack_addr(types::I64, ss, 0);
-                                return NodeResult::StructAccessVar {
-                                    ptr,
-                                    offset,
-                                    ty_id: target_ty_id,
-                                };
-                            }
-                            return NodeResult::StructAccessVar {
-                                ptr: v.value(fbx, ms_ctx),
-                                offset,
-                                ty_id: target_ty_id,
-                            };
-                        }
-                        NodeResult::Val(v) => {
-                            return NodeResult::StructAccessVar {
-                                ptr: v.value,
-                                offset,
-                                ty_id: target_ty_id,
-                            };
-                        }
-                        NodeResult::StructAccessVar {
-                            ptr,
-                            offset: old_offset,
-                            ..
-                        } => {
+                match var {
+                    NodeResult::Var(v) => {
+                        if let Some(ss) = v.stack_slot {
+                            let ptr = fbx.ins().stack_addr(types::I64, ss, 0);
                             return NodeResult::StructAccessVar {
                                 ptr,
-                                offset: old_offset + offset,
+                                offset,
                                 ty_id: target_ty_id,
                             };
                         }
-                        _ => todo!(),
+                        return NodeResult::StructAccessVar {
+                            ptr: v.value(fbx, ms_ctx),
+                            offset,
+                            ty_id: target_ty_id,
+                        };
                     }
-                }
-                MsTokenType::Nested(parent_ty, child_ty) => {
-                    let field_name = parent_ty.as_name().unwrap();
-                    let field = struct_ty
-                        .get_field(field_name)
-                        .expect(&format!("unknown field in struct {}", field_name));
-
-                    let offset = field.offset;
-                    let target_ty_id = field.ty;
-
-                    let root_ptr = match var {
-                        NodeResult::Var(v) => {
-                            if let Some(ss) = v.stack_slot {
-                                fbx.ins().stack_addr(types::I64, ss, 0)
-                            } else {
-                                v.value(fbx, ms_ctx)
-                            }
-                        }
-                        NodeResult::Val(v) => v.value,
-                        NodeResult::StructAccessVar {
+                    NodeResult::Val(v) => {
+                        return NodeResult::StructAccessVar {
+                            ptr: v.value,
+                            offset,
+                            ty_id: target_ty_id,
+                        };
+                    }
+                    NodeResult::StructAccessVar {
+                        ptr,
+                        offset: old_offset,
+                        ..
+                    } => {
+                        return NodeResult::StructAccessVar {
                             ptr,
-                            offset: old_offset,
-                            ..
-                        } => fbx.ins().iadd_imm(ptr, old_offset as i64),
-                        _ => todo!(),
-                    };
-
-                    let field_ptr = fbx.ins().iadd_imm(root_ptr, offset as i64);
-                    let field_node = NodeResult::Val(MsVal::new(target_ty_id, field_ptr));
-                    return compile_nested_struct_access(field_node, child_ty, ms_ctx, fbx, module);
+                            offset: old_offset + offset,
+                            ty_id: target_ty_id,
+                        };
+                    }
+                    _ => todo!(),
                 }
-                _ => unreachable!(),
             }
-        }
+            MsTokenType::Nested(parent_ty, child_ty) => {
+                let field_name = parent_ty.as_name().unwrap();
+                let field = struct_ty
+                    .get_field(field_name)
+                    .expect(&format!("unknown field in struct {}", field_name));
+
+                let offset = field.offset;
+                let target_ty_id = field.ty;
+
+                let root_ptr = match var {
+                    NodeResult::Var(v) => {
+                        if let Some(ss) = v.stack_slot {
+                            fbx.ins().stack_addr(types::I64, ss, 0)
+                        } else {
+                            v.value(fbx, ms_ctx)
+                        }
+                    }
+                    NodeResult::Val(v) => v.value,
+                    NodeResult::StructAccessVar {
+                        ptr,
+                        offset: old_offset,
+                        ..
+                    } => fbx.ins().iadd_imm(ptr, old_offset as i64),
+                    _ => todo!(),
+                };
+
+                let field_ptr = fbx.ins().iadd_imm(root_ptr, offset as i64);
+                let field_node = NodeResult::Val(MsVal::new(target_ty_id, field_ptr));
+                return compile_nested_struct_access(field_node, child_ty, ms_ctx, fbx, module);
+            }
+            _ => unreachable!(),
+        },
         MsType::Enum(enum_ty) => {
             let variant_name = child.as_name().unwrap();
             let tag_idx = enum_ty.get_tag_index(variant_name).unwrap();
@@ -1736,13 +2043,8 @@ pub fn compile_statements(
                 let ptr = fbx.ins().stack_addr(types::I64, stack_slot, 0);
                 fbx.ins().store(MemFlags::new(), value, ptr, 0);
 
-                let mut variable = MsVar::new(
-                    node_value.ty(),
-                    variable,
-                    Some(stack_slot),
-                    *mutable,
-                    false,
-                );
+                let mut variable =
+                    MsVar::new(node_value.ty(), variable, Some(stack_slot), *mutable, false);
                 if let Some(old_variable) = ms_ctx.var_scopes.add_variable(var_name, variable) {
                     drop_variable(&old_variable, ms_ctx, fbx, module);
                 }
@@ -1797,7 +2099,14 @@ pub fn compile_statements(
                                 let dest = fbx.use_var(dest);
                                 match var {
                                     NodeResult::EnumUnwrap(_, variant_name) => {
-                                        ety.set_variant(dest, &variant_name, None, fbx, ms_ctx, module);
+                                        ety.set_variant(
+                                            dest,
+                                            &variant_name,
+                                            None,
+                                            fbx,
+                                            ms_ctx,
+                                            module,
+                                        );
                                     }
                                     _ => {
                                         let src = var.value(fbx, ms_ctx);
@@ -1992,6 +2301,71 @@ pub fn random_string_into(len: usize, mut w: impl Write) {
     w.write_fmt(format_args!("blk_{}", count)).unwrap();
 }
 
+fn compile_pattern_match(
+    pattern: &Expr,
+    scrutinee_ty_id: MsTypeId,
+    scrutinee_val: Value,
+    fbx: &mut FunctionBuilder,
+    module: &mut ObjectModule,
+    ms_ctx: &mut MsContext,
+) -> Value {
+    match pattern {
+        Expr::Binary {
+            op: BinaryOperation::BitOr,
+            lhs,
+            rhs,
+            ..
+        } => {
+            let left_match =
+                compile_pattern_match(lhs, scrutinee_ty_id, scrutinee_val, fbx, module, ms_ctx);
+            let right_match =
+                compile_pattern_match(rhs, scrutinee_ty_id, scrutinee_val, fbx, module, ms_ctx);
+            fbx.ins().bor(left_match, right_match)
+        }
+        Expr::Ident(id) if id.name == "_" => fbx.ins().iconst(types::I8, 1),
+        _ => {
+            let pattern_res = match pattern {
+                Expr::Call { callee, .. } => {
+                    let ty_expr = expr_to_type_expr(callee);
+                    if let Some(MsResolved::EnumUnwrap(ty, variant)) =
+                        ms_ctx.current_module.resolve(&ty_expr)
+                    {
+                        NodeResult::EnumUnwrap(ty, variant)
+                    } else {
+                        compile_node(pattern, module, fbx, ms_ctx).unwrap()
+                    }
+                }
+                _ => compile_node(pattern, module, fbx, ms_ctx).unwrap(),
+            };
+
+            match pattern_res {
+                NodeResult::EnumUnwrap(enum_ty, variant_name) => {
+                    let enum_inner = match &enum_ty.ty {
+                        MsType::Enum(e) => e,
+                        _ => panic!("Expected enum type"),
+                    };
+                    let tag_idx = enum_inner
+                        .get_tag_index(&variant_name)
+                        .expect("Unknown variant");
+                    let tag = enum_inner.get_tag(scrutinee_val, fbx);
+                    fbx.ins().icmp_imm(IntCC::Equal, tag, tag_idx as i64)
+                }
+                _ => {
+                    let pattern_val = pattern_res.value(fbx, ms_ctx);
+                    compile_comparison_for_match(
+                        scrutinee_ty_id,
+                        scrutinee_val,
+                        pattern_val,
+                        fbx,
+                        module,
+                        ms_ctx,
+                    )
+                }
+            }
+        }
+    }
+}
+
 pub fn compile_match_block(
     match_block: &MatchBlock,
     module: &mut ObjectModule,
@@ -2001,9 +2375,9 @@ pub fn compile_match_block(
     let scrutinee_res = compile_node(&match_block.scrutinee, module, fbx, ms_ctx).unwrap();
     let scrutinee_val = scrutinee_res.value(fbx, ms_ctx);
     let scrutinee_ty_id = scrutinee_res.ty();
-    
+
     let end_block = fbx.create_block();
-    
+
     let mut arms = match_block.arms.iter().peekable();
     let mut next_arm_test_block = fbx.create_block();
     fbx.ins().jump(next_arm_test_block, &[]);
@@ -2012,53 +2386,22 @@ pub fn compile_match_block(
         let current_arm_test_block = next_arm_test_block;
         next_arm_test_block = fbx.create_block();
         let body_block = fbx.create_block();
-        
+
         fbx.switch_to_block(current_arm_test_block);
-        
+
         match &arm.pattern {
             Expr::Ident(id) if id.name == "_" => {
                 fbx.ins().jump(body_block, &[]);
             }
             _ => {
-                let pattern_node = &arm.pattern;
-                let pattern_res = match pattern_node {
-                    Expr::Call { callee, .. } => {
-                        let ty_expr = expr_to_type_expr(callee);
-                        if let Some(MsResolved::EnumUnwrap(ty, variant)) =
-                            ms_ctx.current_module.resolve(&ty_expr)
-                        {
-                            NodeResult::EnumUnwrap(ty, variant)
-                        } else {
-                            compile_node(pattern_node, module, fbx, ms_ctx).unwrap()
-                        }
-                    }
-                    _ => compile_node(pattern_node, module, fbx, ms_ctx).unwrap(),
-                };
-
-                let is_match = match pattern_res {
-                    NodeResult::EnumUnwrap(enum_ty, variant_name) => {
-                        let enum_inner = match &enum_ty.ty {
-                            MsType::Enum(e) => e,
-                            _ => panic!("Expected enum type"),
-                        };
-                        let tag_idx = enum_inner
-                            .get_tag_index(&variant_name)
-                            .expect("Unknown variant");
-                        let tag = enum_inner.get_tag(scrutinee_val, fbx);
-                        fbx.ins().icmp_imm(IntCC::Equal, tag, tag_idx as i64)
-                    }
-                    _ => {
-                        let pattern_val = pattern_res.value(fbx, ms_ctx);
-                        compile_comparison_for_match(
-                            scrutinee_ty_id,
-                            scrutinee_val,
-                            pattern_val,
-                            fbx,
-                            module,
-                            ms_ctx,
-                        )
-                    }
-                };
+                let is_match = compile_pattern_match(
+                    &arm.pattern,
+                    scrutinee_ty_id,
+                    scrutinee_val,
+                    fbx,
+                    module,
+                    ms_ctx,
+                );
 
                 fbx.ins()
                     .brif(is_match, body_block, &[], next_arm_test_block, &[]);
@@ -2110,11 +2453,11 @@ pub fn compile_match_block(
         }
         fbx.seal_block(body_block);
     }
-    
+
     fbx.switch_to_block(next_arm_test_block);
     fbx.ins().jump(end_block, &[]);
     fbx.seal_block(next_arm_test_block);
-    
+
     fbx.switch_to_block(end_block);
     fbx.seal_block(end_block);
 }
@@ -2127,11 +2470,13 @@ fn compile_comparison_for_match(
     module: &mut ObjectModule,
     ms_ctx: &mut MsContext,
 ) -> Value {
-    let ty = ms_ctx.current_module.type_registry.get_from_type_id(ty_id).unwrap();
+    let ty = ms_ctx
+        .current_module
+        .type_registry
+        .get_from_type_id(ty_id)
+        .unwrap();
     match ty {
-        MsType::Native(nty) => {
-            nty.compare(BinaryOperation::Eq, lhs, rhs, fbx)
-        }
+        MsType::Native(nty) => nty.compare(BinaryOperation::Eq, lhs, rhs, fbx),
         MsType::Struct(_sty) => {
             // Check if it's StrSlice
             let str_slice_ty = ms_ctx.current_module.type_registry.get_from_str("StrSlice");
@@ -2139,33 +2484,43 @@ fn compile_comparison_for_match(
                 if ss_ty.id == ty_id {
                     let len_field_offset = 8;
                     let ptr_field_offset = 0;
-                    
+
                     let l_len_addr = fbx.ins().iadd_imm(lhs, len_field_offset);
                     let l_len = fbx.ins().load(types::I64, MemFlags::new(), l_len_addr, 0);
-                    
+
                     let r_len_addr = fbx.ins().iadd_imm(rhs, len_field_offset);
                     let r_len = fbx.ins().load(types::I64, MemFlags::new(), r_len_addr, 0);
-                    
+
                     let len_eq = fbx.ins().icmp(IntCC::Equal, l_len, r_len);
-                    
+
                     let zero = fbx.ins().iconst(types::I64, 0);
                     let memcmp_len = fbx.ins().select(len_eq, l_len, zero);
-                    
+
                     let l_ptr_addr = fbx.ins().iadd_imm(lhs, ptr_field_offset);
                     let l_ptr = fbx.ins().load(types::I64, MemFlags::new(), l_ptr_addr, 0);
                     let r_ptr_addr = fbx.ins().iadd_imm(rhs, ptr_field_offset);
                     let r_ptr = fbx.ins().load(types::I64, MemFlags::new(), r_ptr_addr, 0);
-                    
-                    let memcmp_func = ms_ctx.current_module.fn_registry.registry.get("memcmp").expect("memcmp not found");
+
+                    let memcmp_func = ms_ctx
+                        .current_module
+                        .fn_registry
+                        .registry
+                        .get("memcmp")
+                        .expect("memcmp not found");
                     let func_ref = module.declare_func_in_func(memcmp_func.func_id, fbx.func);
                     let call_inst = fbx.ins().call(func_ref, &[l_ptr, r_ptr, memcmp_len]);
                     let res = fbx.inst_results(call_inst)[0];
                     let mem_eq = fbx.ins().icmp_imm(IntCC::Equal, res, 0);
-                    
+
                     return fbx.ins().select(len_eq, mem_eq, len_eq);
                 }
             }
             todo!("comparison for match not implemented for structs other than StrSlice")
+        }
+        MsType::Enum(enum_ty) => {
+            let l_tag = enum_ty.get_tag(lhs, fbx);
+            let r_tag = enum_ty.get_tag(rhs, fbx);
+            fbx.ins().icmp(IntCC::Equal, l_tag, r_tag)
         }
         _ => todo!("comparison for match not implemented for {:?}", ty),
     }
@@ -2183,9 +2538,6 @@ pub fn check_if_its_enum_unwrap(
         _ => None,
     };
 }
-
-
-
 
 pub fn instantiate_generic_function(
     template: MsGenericFunction,
@@ -2212,10 +2564,9 @@ pub fn instantiate_generic_function(
         // Instantiate signature
         for (gen_name, res) in template.generics.iter().zip(real_types.iter()) {
             if let Some(ty) = res.ty() {
-                ms_ctx.current_module.add_alias(
-                    TypeNameWithGenerics::new(gen_name.clone(), vec![]),
-                    ty,
-                );
+                ms_ctx
+                    .current_module
+                    .add_alias(TypeNameWithGenerics::new(gen_name.clone(), vec![]), ty);
             }
         }
 
@@ -2243,9 +2594,14 @@ pub fn instantiate_generic_function(
                 Some(ty.id)
             } else if let Some(body) = &template.decl.body {
                 // Try to infer
-                let inferred = infer_return_type_from_body(body, module, ms_ctx, &template.decl.params, None);
+                let inferred =
+                    infer_return_type_from_body(body, module, ms_ctx, &template.decl.params, None);
                 if let Some(ty_id) = inferred {
-                    let ty = ms_ctx.current_module.type_registry.get_from_type_id(ty_id).unwrap();
+                    let ty = ms_ctx
+                        .current_module
+                        .type_registry
+                        .get_from_type_id(ty_id)
+                        .unwrap();
                     match ty {
                         MsType::Native(nty) => {
                             sig.returns.push(nty.to_abi_param().unwrap());
@@ -2266,6 +2622,34 @@ pub fn instantiate_generic_function(
                     log::warn!("Could not infer return type for template from body");
                     None
                 }
+            } else {
+                None
+            }
+        } else if let Some(body) = &template.decl.body {
+            let inferred =
+                infer_return_type_from_body(body, module, ms_ctx, &template.decl.params, None);
+            if let Some(ty_id) = inferred {
+                let ty = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_from_type_id(ty_id)
+                    .unwrap();
+                match ty {
+                    MsType::Native(nty) => {
+                        sig.returns.push(nty.to_abi_param().unwrap());
+                    }
+                    MsType::Struct(struct_ty) => {
+                        sig.params.push(struct_ty.to_abi_param());
+                    }
+                    MsType::Enum(enum_ty) => {
+                        sig.params.push(enum_ty.to_abi_param());
+                    }
+                    MsType::Ref(_, _) => {
+                        sig.returns.push(AbiParam::new(types::I64));
+                    }
+                    _ => todo!(),
+                }
+                Some(ty_id)
             } else {
                 None
             }
@@ -2295,10 +2679,10 @@ pub fn instantiate_generic_function(
             fn_type: FunctionType::Public,
         });
 
-        ms_ctx.current_module.fn_registry.add_function(
-            instantiation_name.clone(),
-            declared_function.clone(),
-        );
+        ms_ctx
+            .current_module
+            .fn_registry
+            .add_function(instantiation_name.clone(), declared_function.clone());
 
         ms_ctx.instantiation_queue.push(MsInstantiation {
             template: template.clone(),
@@ -2321,21 +2705,26 @@ pub fn infer_return_type_from_body(
 ) -> Option<MsTypeId> {
     // To infer, we need to "partially compile" the function in a safe way.
     // We create a dummy builder and try to compile return expressions.
-    
+
     let mut temp_ctx = module.make_context();
     let mut temp_fbx_ctx = FunctionBuilderContext::new();
-    
+
     // Setup dummy signature for the infer run
     temp_ctx.func.signature.call_conv = module.isa().default_call_conv();
-    
+
     // Add parameters to the dummy signature
     for param in params {
-        let ty = if let (Some(ref trait_on_type), "self") = (&trait_on_type, param.name.name.as_str()) {
-            trait_on_type.on_type.clone()
-        } else {
-            ms_ctx.current_module.resolve(&param.ty)?.ty()?
-        };
-        temp_ctx.func.signature.params.push(ty.ty.to_abi_param().unwrap());
+        let ty =
+            if let (Some(ref trait_on_type), "self") = (&trait_on_type, param.name.name.as_str()) {
+                trait_on_type.on_type.clone()
+            } else {
+                ms_ctx.current_module.resolve(&param.ty)?.ty()?
+            };
+        temp_ctx
+            .func
+            .signature
+            .params
+            .push(ty.ty.to_abi_param().unwrap());
     }
 
     let mut temp_fbx = FunctionBuilder::new(&mut temp_ctx.func, &mut temp_fbx_ctx);
@@ -2345,48 +2734,77 @@ pub fn infer_return_type_from_body(
     temp_fbx.seal_block(entry_block);
 
     ms_ctx.var_scopes.new_scope();
-    
+
     // Bind parameters in dummy scope
     for (i, param) in params.iter().enumerate() {
         let val = temp_fbx.block_params(entry_block)[i];
-        let ty_id = if let (Some(ref trait_on_type), "self") = (&trait_on_type, param.name.name.as_str()) {
-            trait_on_type.on_type.id
-        } else {
-            ms_ctx.current_module.resolve(&param.ty).unwrap().ty().unwrap().id
-        };
+        let ty_id =
+            if let (Some(ref trait_on_type), "self") = (&trait_on_type, param.name.name.as_str()) {
+                trait_on_type.on_type.id
+            } else {
+                ms_ctx
+                    .current_module
+                    .resolve(&param.ty)
+                    .unwrap()
+                    .ty()
+                    .unwrap()
+                    .id
+            };
         let c_var = temp_fbx.declare_var(temp_fbx.func.dfg.value_type(val));
         temp_fbx.def_var(c_var, val);
-        ms_ctx.var_scopes.add_variable(param.name.name.as_str(), MsVar::new(ty_id, c_var, None, param.mutable, false));
+        ms_ctx.var_scopes.add_variable(
+            param.name.name.as_str(),
+            MsVar::new(ty_id, c_var, None, param.mutable, false),
+        );
     }
 
     let mut inferred_id = None;
-    
-    fn find_return(block: &Block, fbx: &mut FunctionBuilder, modl: &mut ObjectModule, ctx: &mut MsContext) -> Option<MsTypeId> {
+
+    fn find_return(
+        block: &Block,
+        fbx: &mut FunctionBuilder,
+        modl: &mut ObjectModule,
+        ctx: &mut MsContext,
+    ) -> Option<MsTypeId> {
         for item in &block.items {
             match item {
-                BlockItem::Statement(Statement::Return { value: Some(expr), .. }) => {
+                BlockItem::Statement(Statement::Return {
+                    value: Some(expr), ..
+                }) => {
                     let res = compile_node(expr, modl, fbx, ctx);
                     return res.map(|res| res.ty());
                 }
                 BlockItem::IfChain(if_chain) => {
-                    if let Some(id) = find_return(&if_chain.if_block.body, fbx, modl, ctx) { return Some(id); }
+                    if let Some(id) = find_return(&if_chain.if_block.body, fbx, modl, ctx) {
+                        return Some(id);
+                    }
                     for elif in &if_chain.elif_blocks {
-                        if let Some(id) = find_return(&elif.body, fbx, modl, ctx) { return Some(id); }
+                        if let Some(id) = find_return(&elif.body, fbx, modl, ctx) {
+                            return Some(id);
+                        }
                     }
                     if let Some(else_b) = &if_chain.else_block {
-                        if let Some(id) = find_return(else_b, fbx, modl, ctx) { return Some(id); }
+                        if let Some(id) = find_return(else_b, fbx, modl, ctx) {
+                            return Some(id);
+                        }
                     }
                 }
                 BlockItem::Loop(loop_b) => {
-                    if let Some(id) = find_return(&loop_b.body, fbx, modl, ctx) { return Some(id); }
+                    if let Some(id) = find_return(&loop_b.body, fbx, modl, ctx) {
+                        return Some(id);
+                    }
                 }
                 BlockItem::Match(match_b) => {
                     for arm in &match_b.arms {
-                        if let Some(id) = find_return(&arm.body, fbx, modl, ctx) { return Some(id); }
+                        if let Some(id) = find_return(&arm.body, fbx, modl, ctx) {
+                            return Some(id);
+                        }
                     }
                 }
                 BlockItem::Block(b) => {
-                    if let Some(id) = find_return(b, fbx, modl, ctx) { return Some(id); }
+                    if let Some(id) = find_return(b, fbx, modl, ctx) {
+                        return Some(id);
+                    }
                 }
                 _ => {}
             }
@@ -2399,7 +2817,7 @@ pub fn infer_return_type_from_body(
     ms_ctx.var_scopes.exit_scope();
     temp_fbx.ins().return_(&[]);
     temp_fbx.finalize();
-    
+
     inferred_id
 }
 
@@ -2415,13 +2833,7 @@ pub fn infer_generics_from_args(
             .type_registry
             .get_from_type_id(arg_ty_id)
             .unwrap();
-        unify_type_expr_with_concrete(
-            &param.ty,
-            &arg_ty,
-            &template.generics,
-            &mut map,
-            ms_ctx,
-        );
+        unify_type_expr_with_concrete(&param.ty, &arg_ty, &template.generics, &mut map, ms_ctx);
     }
 
     let mut real_types = Vec::new();
@@ -2440,18 +2852,18 @@ pub fn infer_generics_from_args(
             // Actually, pushing nothing might break zip.
             // Let's push a "Unknown" MsResolved if possible?
             // MsResolved doesn't have Unknown.
-            
+
             // I'll push i64 as a dummy if it's _TRet? No, instantiation should infer it.
             // If I push nothing, zip will stop.
             // If I push something, zip will alias it.
-            
+
             // If it's NOT in the map, we don't want to alias it to anything yet.
             // But we need to maintain the index for subsequent generics.
-            
+
             // Actually, for now, let's just push MsResolved::Type with MsTypeId(0) as a placeholder.
-            real_types.push(MsResolved::Type(MsTypeWithId { 
-                id: MsTypeId(0), 
-                ty: MsType::Native(MsNativeType::I64) // Dummy
+            real_types.push(MsResolved::Type(MsTypeWithId {
+                id: MsTypeId(0),
+                ty: MsType::Native(MsNativeType::I64), // Dummy
             }));
         }
     }
@@ -2482,13 +2894,13 @@ fn unify_type_expr_with_concrete(
             }
         }
         MsTokenType::Generic(base, args) => {
-             // e.g. Array[T] matched with concrete.
-             // If concrete is a struct named like base?
-             if let MsType::Struct(sty) = concrete {
-                 // Unfortunately MsStructType doesn't store its base template name easily.
-                 // But we can try to parse the name if it's "Name[...]"
-                 // Or we can just skip this for now.
-             }
+            // e.g. Array[T] matched with concrete.
+            // If concrete is a struct named like base?
+            if let MsType::Struct(sty) = concrete {
+                // Unfortunately MsStructType doesn't store its base template name easily.
+                // But we can try to parse the name if it's "Name[...]"
+                // Or we can just skip this for now.
+            }
         }
         _ => {}
     }

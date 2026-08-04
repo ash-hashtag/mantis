@@ -2,7 +2,7 @@ use std::{any::Any, ops::Deref};
 
 use cranelift::{
     codegen::ir::Inst,
-    prelude::{Block, FunctionBuilder, InstBuilder},
+    prelude::{types, Block, FunctionBuilder, InstBuilder},
 };
 use cranelift_module::Module;
 use cranelift_object::ObjectModule;
@@ -26,7 +26,9 @@ impl MsVarScopes {
     }
 
     pub fn exit_scope_until(&mut self, index: usize) {
-        todo!()
+        while self.scopes.len() > index {
+            self.scopes.pop();
+        }
     }
 
     pub fn exit_scope(&mut self) -> Option<MsVarRegistry> {
@@ -114,7 +116,11 @@ pub fn drop_variable(
             v.ty_id
         ));
         let func_ref = module.declare_func_in_func(function.func_id, fbx.func);
-        let val = fbx.use_var(v.c_var);
+        let val = if let Some(ss) = v.stack_slot {
+            fbx.ins().stack_addr(types::I64, ss, 0)
+        } else {
+            fbx.use_var(v.c_var)
+        };
         let _ = fbx.ins().call(func_ref, &[val]);
     }
 }

@@ -369,11 +369,16 @@ impl TypeNameWithGenerics {
     ) -> MsTypeWithId {
         if self.name.as_ref() == "__ms_fn" {
             let mut param_ids = Vec::new();
-            for g in &self.generics[0..self.generics.len()-1] {
+            for g in &self.generics[0..self.generics.len() - 1] {
                 param_ids.push(g.generate(real_types, ms_module).id);
             }
-            let ret_id = self.generics.last().unwrap().generate(real_types, ms_module).id;
-            
+            let ret_id = self
+                .generics
+                .last()
+                .unwrap()
+                .generate(real_types, ms_module)
+                .id;
+
             let mut arguments = LinearMap::new();
             for (i, id) in param_ids.into_iter().enumerate() {
                 arguments.insert(format!("p{}", i).into(), id);
@@ -384,16 +389,18 @@ impl TypeNameWithGenerics {
                 fn_type: crate::registries::functions::FunctionType::Public,
                 func_id: cranelift_module::FuncId::from_u32(0),
             };
-            let id = ms_module.type_registry.get_or_add_type(MsType::Function(Rc::new(signature)));
+            let id = ms_module
+                .type_registry
+                .get_or_add_type(MsType::Function(Rc::new(signature)));
             let ty = ms_module.type_registry.get_from_type_id(id).unwrap();
             return MsTypeWithId { id, ty };
         }
         let mut base = if let Some(ty) = real_types.get(&self.name) {
             assert!(self.generics.is_empty());
-             ty.clone()
+            ty.clone()
         } else if let Some(ty) = ms_module.type_registry.get_from_str(&self.name) {
             assert!(self.generics.is_empty());
-             ty.clone()
+            ty.clone()
         } else {
             let template = ms_module
                 .type_templates
@@ -401,18 +408,24 @@ impl TypeNameWithGenerics {
                 .get(&self.name)
                 .expect(&format!("undeclared template {}", self.name))
                 .clone();
-            
+
             let mut next_real_types = HashMap::new();
             for (generic_name, gen_arg) in template.generics.iter().zip(self.generics.iter()) {
-                next_real_types.insert(generic_name.as_ref().into(), gen_arg.generate(real_types, ms_module));
+                next_real_types.insert(
+                    generic_name.as_ref().into(),
+                    gen_arg.generate(real_types, ms_module),
+                );
             }
             template.generate(&next_real_types, ms_module)
         };
 
         for &is_mut in &self.refs {
             let ty = MsType::Ref(Box::new(base.ty), is_mut);
-            let deterministic_name = format!("ref_{}{}", if is_mut { "mut_" } else { "" }, base.id.0);
-            let id = ms_module.type_registry.add_type(deterministic_name, ty.clone());
+            let deterministic_name =
+                format!("ref_{}{}", if is_mut { "mut_" } else { "" }, base.id.0);
+            let id = ms_module
+                .type_registry
+                .add_type(deterministic_name, ty.clone());
             base = MsTypeWithId { id, ty };
         }
         base
@@ -479,7 +492,9 @@ impl EnumWithGenerics {
 
         let ty = MsType::Enum(Rc::new(enum_ty));
 
-        let id = ms_module.type_registry.add_type(ty_name.to_string(), ty.clone());
+        let id = ms_module
+            .type_registry
+            .add_type(ty_name.to_string(), ty.clone());
 
         return MsTypeWithId { ty, id };
     }
@@ -554,13 +569,15 @@ impl MsGenericTemplate {
     ) -> MsTypeWithId {
         let mut full_name = self.name.to_string();
         if !real_types.is_empty() {
-             full_name.push('[');
-             for (i, arg_name) in self.generics.iter().enumerate() {
-                 if i > 0 { full_name.push_str(", "); }
-                 let arg_ty = real_types.get(arg_name).unwrap();
-                 full_name.push_str(&format!("{}", arg_ty.id.0)); // Use ID to be unique and short
-             }
-             full_name.push(']');
+            full_name.push('[');
+            for (i, arg_name) in self.generics.iter().enumerate() {
+                if i > 0 {
+                    full_name.push_str(", ");
+                }
+                let arg_ty = real_types.get(arg_name).unwrap();
+                full_name.push_str(&format!("{}", arg_ty.id.0)); // Use ID to be unique and short
+            }
+            full_name.push(']');
         }
 
         match self.inner_type {
@@ -837,6 +854,7 @@ impl MsTypeNameRegistry {
 
         let u32_ty = registry.add_type("u32", MsType::Native(MsNativeType::U32));
         let i8_ty = registry.add_type("i8", MsType::Native(MsNativeType::I8));
+        registry.add_type("void", MsType::Native(MsNativeType::I64));
         registry.add_alias("bool", i8_ty);
         registry.add_alias("char", u32_ty);
 
@@ -928,11 +946,24 @@ pub struct MsTypeMethodRegistry {
 }
 
 impl MsTypeMethodRegistry {
-    pub fn add_method(&mut self, type_id: MsTypeId, name: impl Into<Box<str>>, func: Rc<MsDeclaredFunction>) {
-        self.map.entry(type_id).or_default().add_function(name, func);
+    pub fn add_method(
+        &mut self,
+        type_id: MsTypeId,
+        name: impl Into<Box<str>>,
+        func: Rc<MsDeclaredFunction>,
+    ) {
+        self.map
+            .entry(type_id)
+            .or_default()
+            .add_function(name, func);
     }
 
-    pub fn add_function(&mut self, type_id: MsTypeId, name: impl Into<Box<str>>, func: Rc<MsDeclaredFunction>) {
+    pub fn add_function(
+        &mut self,
+        type_id: MsTypeId,
+        name: impl Into<Box<str>>,
+        func: Rc<MsDeclaredFunction>,
+    ) {
         self.add_method(type_id, name, func);
     }
 

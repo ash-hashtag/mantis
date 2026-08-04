@@ -41,7 +41,6 @@ fn #vec[T](args $Args[U]) Vec[T] where
 
 
 fn main() {
-	let v = #vec[u32](0, 1, 2.0);
-
-	let vs = #vec[String]("hello ", s, " world");
+	let a = #add_two(10, 20);
+	let b = #add_two(10, 5.5);
 }

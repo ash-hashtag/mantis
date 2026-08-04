@@ -65,11 +65,7 @@ impl Parser {
                 self.pos += 1;
                 return Ok(sp);
             }
-            return Err(self.error(format!(
-                "expected {:?}, found {:?}",
-                expected,
-                tok
-            )));
+            return Err(self.error(format!("expected {:?}, found {:?}", expected, tok)));
         }
         Err(self.error(format!("expected {:?}, found EOF", expected)))
     }
@@ -142,7 +138,7 @@ impl Parser {
 
     fn parse_import(&mut self) -> PResult<ImportDecl> {
         let start = self.expect(&Token::Import)?;
-        
+
         // Support either an identifier path or a string literal path
         let mut path = Vec::new();
         if let Some(Token::String(s)) = self.peek().cloned() {
@@ -239,6 +235,34 @@ impl Parser {
             is_extern = true;
         }
 
+        let mut where_clause = Vec::new();
+        if matches!(self.peek(), Some(Token::Where)) {
+            self.advance();
+            while !matches!(
+                self.peek(),
+                Some(Token::LBrace | Token::Semi | Token::Extern) | None
+            ) {
+                let start_b = self.peek_span();
+                let target = self.parse_type_name()?;
+                if self.eat(&Token::Colon) {
+                    let mut bounds = Vec::new();
+                    bounds.push(self.parse_type_name()?);
+                    while self.eat(&Token::Plus) {
+                        bounds.push(self.parse_type_name()?);
+                    }
+                    let bspan = start_b.merge(self.prev_span());
+                    where_clause.push(WhereBound {
+                        target,
+                        bounds,
+                        span: bspan,
+                    });
+                    self.eat(&Token::Comma);
+                } else {
+                    break;
+                }
+            }
+        }
+
         if matches!(self.peek(), Some(Token::LBrace)) {
             body = Some(self.parse_block()?);
         } else {
@@ -259,6 +283,7 @@ impl Parser {
             name,
             params,
             return_type,
+            where_clause,
             body,
             is_extern,
             trailing_params,
@@ -276,22 +301,30 @@ impl Parser {
                     self.advance();
                 }
             }
-            
+
             let name = self.expect_ident()?;
-            
+
             // Support default values or ignore them for now: allocator = GlobalAllocator
             let mut ty = TypeExpr::Unknown;
-            if !matches!(self.peek(), Some(Token::Eq | Token::Comma | Token::RParen | Token::RBrace)) {
+            if !matches!(
+                self.peek(),
+                Some(Token::Eq | Token::Comma | Token::RParen | Token::RBrace)
+            ) {
                 ty = self.parse_type_name()?;
             }
-            
+
             if self.eat(&Token::Eq) {
                 // For now just consume the expression as we don't store it in Param
                 self.parse_expr(0)?;
             }
 
             let span = name.span.merge(self.prev_span());
-            params.push(Param { name, mutable, ty, span });
+            params.push(Param {
+                name,
+                mutable,
+                ty,
+                span,
+            });
             if !self.eat(&Token::Comma) {
                 break;
             }
@@ -523,7 +556,14 @@ impl Parser {
     fn peek_is_type_start(&self) -> bool {
         matches!(
             self.peek(),
-            Some(Token::Ident(_) | Token::At | Token::Amp | Token::LParen | Token::CompilerFn(_) | Token::CompileTimeType(_))
+            Some(
+                Token::Ident(_)
+                    | Token::At
+                    | Token::Amp
+                    | Token::LParen
+                    | Token::CompilerFn(_)
+                    | Token::CompileTimeType(_)
+            )
         )
     }
 
@@ -638,7 +678,7 @@ impl Parser {
     fn parse_expr_stmt(&mut self) -> PResult<Statement> {
         let expr = self.parse_expr(0)?;
         let span = expr.span();
-        
+
         // Semicolon is optional if followed by RBrace or EOF
         if !matches!(self.peek(), Some(Token::RBrace) | None) {
             self.expect(&Token::Semi)?;
@@ -724,7 +764,7 @@ impl Parser {
         let mut arms = Vec::new();
         while !matches!(self.peek(), Some(Token::RBrace) | None) {
             let pattern = self.parse_expr(0)?;
-            
+
             // Support optional Arrow (=>) or Colon (:)
             if !self.eat(&Token::Arrow) {
                 self.eat(&Token::Colon);
@@ -877,7 +917,9 @@ impl Parser {
                 // For now, * in prefix position is not used for deref anymore (moved to @)
                 // But could be used for something else later. For now, error or treat as Deref for backward compat if desired.
                 // Switching to error to enforce new syntax.
-                return Err(self.error("expected expression, found '*' (use '@' for dereference)".into()));
+                return Err(
+                    self.error("expected expression, found '*' (use '@' for dereference)".into())
+                );
             }
 
             // Parenthesized expression or Lambda
@@ -913,15 +955,35 @@ impl Parser {
             // Compiler function: #import(...)
             Some(Token::CompilerFn(name)) => {
                 let start = self.advance().span;
-                let name = name;
-                self.expect(&Token::LParen)?;
-                let args = self.parse_expr_list(&Token::RParen)?;
-                let end = self.expect(&Token::RParen)?;
-                Ok(Expr::CompilerCall {
-                    name,
-                    args,
-                    span: start.merge(end),
-                })
+                let is_intrinsic = matches!(
+                    name.as_str(),
+                    "init"
+                        | "free"
+                        | "size_of"
+                        | "ref"
+                        | "as_ref"
+                        | "ptr"
+                        | "malloc"
+                        | "type"
+                        | "import"
+                );
+                if is_intrinsic && matches!(self.peek(), Some(Token::LParen)) {
+                    self.expect(&Token::LParen)?;
+                    let args = self.parse_expr_list(&Token::RParen)?;
+                    let end = self.expect(&Token::RParen)?;
+                    Ok(Expr::CompilerCall {
+                        name,
+                        args,
+                        span: start.merge(end),
+                    })
+                } else {
+                    let ident = Ident::new(format!("#{}", name), start);
+                    if self.is_struct_init_start() {
+                        let ty = TypeExpr::Named(ident);
+                        return self.parse_struct_init_with_type(ty);
+                    }
+                    Ok(Expr::Ident(ident))
+                }
             }
 
             // Literals
@@ -960,10 +1022,8 @@ impl Parser {
                     let saved = self.pos;
                     self.advance(); // consume [
                     if let Ok(params) = self.try_parse_generic_args() {
-                        let ty = TypeExpr::Generic(
-                            Box::new(TypeExpr::Named(ident.clone())),
-                            params,
-                        );
+                        let ty =
+                            TypeExpr::Generic(Box::new(TypeExpr::Named(ident.clone())), params);
                         if self.is_struct_init_start() {
                             return self.parse_struct_init_with_type(ty);
                         }
@@ -1022,10 +1082,7 @@ impl Parser {
         }
         // Look ahead: { ident = ... } or { ident : ... }
         if let Some(Token::Ident(_)) = self.peek_nth(1) {
-            matches!(
-                self.peek_nth(2),
-                Some(Token::Eq) | Some(Token::Colon)
-            )
+            matches!(self.peek_nth(2), Some(Token::Eq) | Some(Token::Colon))
         } else {
             false
         }
@@ -1137,7 +1194,9 @@ impl Parser {
             Some(Token::Amp) => BinOp::BitAnd,
             Some(Token::Pipe) => BinOp::BitOr,
             Some(Token::Caret) => BinOp::BitXor,
-            _ => return Err(self.error(format!("expected binary operator, found {:?}", self.peek()))),
+            _ => {
+                return Err(self.error(format!("expected binary operator, found {:?}", self.peek())))
+            }
         };
         self.advance();
         Ok(op)
@@ -1145,7 +1204,7 @@ impl Parser {
 
     fn infix_bp(&self) -> Option<(u8, u8)> {
         match self.peek()? {
-            Token::Eq | Token::AtAssign => Some((2, 1)),    // right-assoc assignment
+            Token::Eq | Token::AtAssign => Some((2, 1)), // right-assoc assignment
             Token::EqEq | Token::NotEq => Some((3, 4)),
             Token::Gt | Token::Lt | Token::GtEq | Token::LtEq => Some((5, 6)),
             Token::Pipe => Some((7, 8)),
@@ -1154,15 +1213,15 @@ impl Parser {
             Token::Shl | Token::Shr => Some((13, 14)),
             Token::Plus | Token::Minus => Some((15, 16)),
             Token::Star | Token::Slash | Token::Percent => Some((17, 18)),
-            Token::As => Some((19, 20)),                     // cast
-            Token::Dot => Some((25, 26)),                    // field access
+            Token::As => Some((19, 20)),  // cast
+            Token::Dot => Some((25, 26)), // field access
             _ => None,
         }
     }
 
     fn postfix_bp(&self) -> Option<u8> {
         match self.peek()? {
-            Token::LParen => Some(25),  // function call
+            Token::LParen => Some(25),   // function call
             Token::Question => Some(25), // propagate
             Token::LBracket => Some(25), // generic args
             _ => None,
@@ -1176,7 +1235,10 @@ impl Parser {
 
         // Case: () followed by { or ident (return type)
         if matches!(self.peek_nth(1), Some(Token::RParen)) {
-            return matches!(self.peek_nth(2), Some(Token::LBrace | Token::Ident(_) | Token::At | Token::Amp));
+            return matches!(
+                self.peek_nth(2),
+                Some(Token::LBrace | Token::Ident(_) | Token::At | Token::Amp)
+            );
         }
 
         // Case: (ident ident) or (ident @) or (ident &)
