@@ -31,7 +31,7 @@ def compile_example(ms_file, project_root):
     start = time.time()
     try:
         result = subprocess.run(
-            ["cargo", "run", "--quiet", "--", ms_file],
+            ["cargo", "run", "--quiet", "--bin", "mantis", "--", ms_file],
             capture_output=True,
             text=True,
             timeout=60,
@@ -77,16 +77,22 @@ def main():
         success, stdout, stderr, duration = compile_example(ms_file, project_root)
 
         if success:
-            print(f"{Color.GREEN}OK{Color.RESET}  {Color.DIM}({duration:.1f}s){Color.RESET}")
+            print(
+                f"{Color.GREEN}OK{Color.RESET}  {Color.DIM}({duration:.1f}s){Color.RESET}"
+            )
             passed.append(name)
         else:
-            print(f"{Color.RED}FAIL{Color.RESET}  {Color.DIM}({duration:.1f}s){Color.RESET}")
+            print(
+                f"{Color.RED}FAIL{Color.RESET}  {Color.DIM}({duration:.1f}s){Color.RESET}"
+            )
             failed.append((name, stderr.strip(), stdout.strip()))
 
     # ── Summary ──────────────────────────────────────────────────
     print(f"{'─' * 60}\n")
     total = len(ms_files)
-    print(f"{Color.BOLD}Results: {len(passed)}/{total} passed, {len(failed)}/{total} failed{Color.RESET}\n")
+    print(
+        f"{Color.BOLD}Results: {len(passed)}/{total} passed, {len(failed)}/{total} failed{Color.RESET}\n"
+    )
 
     if passed:
         print(f"{Color.GREEN}Passed ({len(passed)}):{Color.RESET}")
