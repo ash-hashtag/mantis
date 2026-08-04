@@ -1,0 +1,1209 @@
+Compiling my_web_app (src/main.ms) ...
+2026-08-04T10:46:26Z INFO [src/main.rs:103] - parsing mantis file took 0.0000s
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "i16", generics: [], refs: [] } -> Native(I16) with type_id MsTypeId(3488347386)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "i32", generics: [], refs: [] } -> Native(I32) with type_id MsTypeId(4267794067)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "i64", generics: [], refs: [] } -> Native(I64) with type_id MsTypeId(2019914344)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "u8", generics: [], refs: [] } -> Native(U8) with type_id MsTypeId(1206973160)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "u16", generics: [], refs: [] } -> Native(U16) with type_id MsTypeId(4184355030)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "u64", generics: [], refs: [] } -> Native(U64) with type_id MsTypeId(2307031793)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "f32", generics: [], refs: [] } -> Native(F32) with type_id MsTypeId(2809878092)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "f64", generics: [], refs: [] } -> Native(F64) with type_id MsTypeId(2092284658)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "u32", generics: [], refs: [] } -> Native(U32) with type_id MsTypeId(775872129)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "i8", generics: [], refs: [] } -> Native(I8) with type_id MsTypeId(2759564604)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "void", generics: [], refs: [] } -> Native(I64) with type_id MsTypeId(933680976)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:853] - Added Alias TypeNameWithGenerics { name: "bool", generics: [], refs: [] } -> with type_id MsTypeId(2759564604)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:853] - Added Alias TypeNameWithGenerics { name: "char", generics: [], refs: [] } -> with type_id MsTypeId(775872129)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "StrSlice", generics: [], refs: [] } -> Struct(MsStructType { fields: {"len": MsStructFieldValue { offset: 8, ty: MsTypeId(2019914344) }, "pointer": MsStructFieldValue { offset: 0, ty: MsTypeId(2019914344) }}, size: 16 }) with type_id MsTypeId(653300986)
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry print
+2026-08-04T10:46:26Z INFO [src/backend/compile.rs:479] - template generated aliased Option -> MsGenericTemplate { name: "Option", generics: ["T"], inner_type: Enum(EnumWithGenerics { map: {"Some": Some(TypeNameWithGenerics { name: "T", generics: [], refs: [] }), "None": None} }) }
+2026-08-04T10:46:26Z INFO [src/backend/compile.rs:479] - template generated aliased Result -> MsGenericTemplate { name: "Result", generics: ["T", "E"], inner_type: Enum(EnumWithGenerics { map: {"Ok": Some(TypeNameWithGenerics { name: "T", generics: [], refs: [] }), "Err": Some(TypeNameWithGenerics { name: "E", generics: [], refs: [] })} }) }
+2026-08-04T10:46:26Z INFO [src/backend/compile.rs:479] - template generated aliased Vec -> MsGenericTemplate { name: "Vec", generics: ["T"], inner_type: Struct(StructWithGenerics { map: {"ptr": TypeNameWithGenerics { name: "T", generics: [], refs: [false] }, "size": TypeNameWithGenerics { name: "u64", generics: [], refs: [] }, "cap": TypeNameWithGenerics { name: "u64", generics: [], refs: [] }} }) }
+2026-08-04T10:46:26Z INFO [src/registries/modules.rs:172] - found template Vec, generating struct
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "ref_1206973160", generics: [], refs: [] } -> Ref(Native(U8), false) with type_id MsTypeId(3589116450)
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field ptr of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field size of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field cap of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "Vec[1206973160]", generics: [], refs: [] } -> Struct(MsStructType { fields: {"ptr": MsStructFieldValue { offset: 0, ty: MsTypeId(3589116450) }, "size": MsStructFieldValue { offset: 8, ty: MsTypeId(2307031793) }, "cap": MsStructFieldValue { offset: 16, ty: MsTypeId(2307031793) }}, size: 24 }) with type_id MsTypeId(777270812)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "ref_777270812", generics: [], refs: [] } -> Ref(Struct(MsStructType { fields: {"ptr": MsStructFieldValue { offset: 0, ty: MsTypeId(3589116450) }, "size": MsStructFieldValue { offset: 8, ty: MsTypeId(2307031793) }, "cap": MsStructFieldValue { offset: 16, ty: MsTypeId(2307031793) }}, size: 24 }), false) with type_id MsTypeId(1876680391)
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field vec of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "String", generics: [], refs: [] } -> Struct(MsStructType { fields: {"vec": MsStructFieldValue { offset: 0, ty: MsTypeId(1876680391) }}, size: 8 }) with type_id MsTypeId(2159803330)
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field sin_family of size 2 and alignment 2
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field sin_port of size 2 and alignment 2
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field sin_addr of size 4 and alignment 4
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field zero_0 of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "sockaddr_in", generics: [], refs: [] } -> Struct(MsStructType { fields: {"sin_port": MsStructFieldValue { offset: 2, ty: MsTypeId(4184355030) }, "sin_addr": MsStructFieldValue { offset: 4, ty: MsTypeId(775872129) }, "sin_family": MsStructFieldValue { offset: 0, ty: MsTypeId(4184355030) }, "zero_0": MsStructFieldValue { offset: 8, ty: MsTypeId(2307031793) }}, size: 16 }) with type_id MsTypeId(3897362821)
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry malloc
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry free
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry realloc
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry memcpy
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry memset
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry memcmp
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry strlen
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry strcmp
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry strncmp
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry strcpy
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry strncpy
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry atoi
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry atof
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry open
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry close
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry read
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry write
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry lseek
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry socket
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry bind
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry listen
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry accept
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry connect
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry setsockopt
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry shutdown
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry htons
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry ntohs
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry pthread_create
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry pthread_join
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry pthread_detach
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry pthread_mutex_init
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry pthread_mutex_lock
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry pthread_mutex_unlock
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry pthread_mutex_destroy
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry pthread_cond_init
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry pthread_cond_wait
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry pthread_cond_signal
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry pthread_cond_broadcast
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry pthread_cond_destroy
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry exit
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry usleep
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry sched_yield
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry time
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry panic
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry print_str
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry println_str
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry print_int
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry serve_http
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry app_handler
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry main
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "ref_2159803330", generics: [], refs: [] } -> Ref(Struct(MsStructType { fields: {"vec": MsStructFieldValue { offset: 0, ty: MsTypeId(1876680391) }}, size: 8 }), false) with type_id MsTypeId(2758399867)
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry blk_0
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry with_capacity
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "malloc", span: 4891..4897 })
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:653] - Assignment Operation Field { object: Ident(Ident { name: "s", span: 4936..4937 }), field: Ident { name: "vec", span: 4938..4941 }, span: 4936..4941 } = Call { callee: Generic { base: Field { object: Ident(Ident { name: "Vec", span: 4944..4947 }), field: Ident { name: "with_capacity", span: 4948..4961 }, span: 4944..4961 }, params: [Named(Ident { name: "u8", span: 4962..4964 })], span: 4944..4965 }, args: [Ident(Ident { name: "cap", span: 4966..4969 })], span: 4944..4970 }
+2026-08-04T10:46:26Z INFO [src/registries/modules.rs:172] - found template Vec, generating struct
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field ptr of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field size of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field cap of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry with_capacity_[Type(MsTypeWithId { id: MsTypeId(1206973160), ty: Native(U8) })]
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Generic { base: Field { object: Ident(Ident { name: "Vec", span: 4944..4947 }), field: Ident { name: "with_capacity", span: 4948..4961 }, span: 4944..4961 }, params: [Named(Ident { name: "u8", span: 4962..4964 })], span: 4944..4965 }
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid51: function u0:0(i64 uext) -> i64 system_v {
+    ss0 = explicit_slot 8
+    sig0 = (i64 sext) -> i64 sext system_v
+    sig1 = (i64 uext) -> i64 system_v
+    fn0 = u0:1 sig0
+    fn1 = u0:52 sig1
+
+block0(v0: i64):
+    v1 = iconst.i64 8
+    v2 = call fn0(v1)  ; v1 = 8
+    v3 = stack_addr.i64 ss0
+    store v2, v3
+    v4 = call fn1(v0)
+    v5 = iadd_imm v2, 0
+    store v4, v5
+    return v2
+}
+
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:497] - defining function funcid51 with bytes
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry blk_1
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry new
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid53: function u0:0() -> i64 system_v {
+    sig0 = (i64 uext) -> i64 system_v
+    fn0 = u0:51 sig0
+
+block0:
+    v0 = iconst.i64 0
+    v1 = call fn0(v0)  ; v0 = 0
+    return v1
+}
+
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:497] - defining function funcid53 with bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:153] - Trying to infer return type for function push_byte from body
+2026-08-04T10:46:26Z WARN [src/backend/compile_function.rs:190] - Could not infer return type for push_byte from body
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry blk_2
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry push_byte
+2026-08-04T10:46:26Z INFO [src/registries/modules.rs:172] - found template Vec, generating struct
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field ptr of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field size of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field cap of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/modules.rs:172] - found template Vec, generating struct
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field ptr of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field size of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field cap of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/modules.rs:172] - found template Vec, generating struct
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field ptr of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field size of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field cap of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry push_[Type(MsTypeWithId { id: MsTypeId(1206973160), ty: Native(U8) })]
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid54: function u0:0(i64, i8 uext) system_v {
+    sig0 = (i64, i8 uext) system_v
+    fn0 = u0:55 sig0
+
+block0(v0: i64, v1: i8):
+    v2 = iadd_imm v0, 0
+    v3 = load.i64 v2
+    call fn0(v3, v1)
+    v4 = iconst.i64 0
+    return
+}
+
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:497] - defining function funcid54 with bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:153] - Trying to infer return type for function push_str from body
+2026-08-04T10:46:26Z WARN [src/backend/compile_function.rs:190] - Could not infer return type for push_str from body
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry blk_3
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry push_str
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:653] - Assignment Operation Ident(Ident { name: "i", span: 5387..5388 }) = Binary { op: Add, lhs: Ident(Ident { name: "i", span: 5391..5392 }), rhs: IntLit { value: 1, span: 5395..5396 }, span: 5391..5396 }
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped byte_ptr of type: MsTypeId(3589116450)
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped i of type: MsTypeId(2019914344)
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid56: function u0:0(i64, i64) system_v {
+    ss0 = explicit_slot 8
+    ss1 = explicit_slot 8
+    sig0 = (i64, i8 uext) system_v
+    fn0 = u0:55 sig0
+
+block0(v0: i64, v1: i64):
+    v13 -> v0
+    v4 -> v1
+    v2 = iconst.i64 0
+    v3 = stack_addr.i64 ss0
+    store v2, v3  ; v2 = 0
+    jump block1(v2)  ; v2 = 0
+
+block1(v5: i64):
+    v6 = iadd_imm.i64 v4, 8
+    v7 = load.i64 v6
+    v8 = icmp sge v5, v7
+    brif v8, block3, block4
+
+block3:
+    jump block2
+
+block4:
+    jump block5
+
+block5:
+    v9 = iadd_imm.i64 v4, 0
+    v10 = load.i64 v9
+    v11 = iadd v10, v5
+    v12 = stack_addr.i64 ss1
+    store v11, v12
+    v14 = load.i8 v11
+    v15 = iadd_imm.i64 v13, 0
+    v16 = load.i64 v15
+    call fn0(v16, v14)
+    v17 = iconst.i64 0
+    v18 = iconst.i64 1
+    v19 = iadd.i64 v5, v18  ; v18 = 1
+    v20 = stack_addr.i64 ss0
+    store v19, v20
+    jump block1(v19)
+
+block2:
+    return
+}
+
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:497] - defining function funcid56 with bytes
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry blk_4
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry from_str
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Field { object: Ident(Ident { name: "str", span: 5515..5518 }), field: Ident { name: "push_str", span: 5519..5527 }, span: 5515..5527 }
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid57: function u0:0(i64) -> i64 system_v {
+    ss0 = explicit_slot 8
+    sig0 = (i64 uext) -> i64 system_v
+    sig1 = (i64, i64) system_v
+    fn0 = u0:51 sig0
+    fn1 = u0:56 sig1
+
+block0(v0: i64):
+    v1 = iadd_imm v0, 8
+    v2 = load.i64 v1
+    v3 = call fn0(v2)
+    v4 = stack_addr.i64 ss0
+    store v3, v4
+    v5 = stack_addr.i64 ss0
+    v6 = load.i64 v5
+    call fn1(v6, v0)
+    return v3
+}
+
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:497] - defining function funcid57 with bytes
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry blk_5
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry as_str
+2026-08-04T10:46:26Z INFO [src/registries/modules.rs:172] - found template Vec, generating struct
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field ptr of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field size of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field cap of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry len_[Type(MsTypeWithId { id: MsTypeId(1206973160), ty: Native(U8) })]
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid58: function u0:0(i64, i64) system_v {
+    ss0 = explicit_slot 16
+    ss1 = explicit_slot 16
+    sig0 = (i64) -> i64 uext system_v
+    sig1 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    fn0 = u0:59 sig0
+    fn1 = u0:4 sig1
+
+block0(v0: i64, v1: i64):
+    v2 = stack_addr.i64 ss0
+    v3 = iadd_imm v1, 0
+    v4 = load.i64 v3
+    v5 = iadd_imm v4, 0
+    v6 = load.i64 v5
+    store v6, v2
+    v7 = iadd_imm v1, 0
+    v8 = load.i64 v7
+    v9 = call fn0(v8)
+    store v9, v2+8
+    v10 = stack_addr.i64 ss1
+    store v2, v10
+    v11 = iconst.i64 16
+    v12 = call fn1(v0, v2, v11)  ; v11 = 16
+    return
+}
+
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:497] - defining function funcid58 with bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:153] - Trying to infer return type for function clear from body
+2026-08-04T10:46:26Z WARN [src/backend/compile_function.rs:190] - Could not infer return type for clear from body
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry blk_6
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry clear
+2026-08-04T10:46:26Z INFO [src/registries/modules.rs:172] - found template Vec, generating struct
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field ptr of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field size of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field cap of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/modules.rs:172] - found template Vec, generating struct
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field ptr of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field size of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field cap of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/modules.rs:172] - found template Vec, generating struct
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field ptr of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field size of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field cap of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry clear_[Type(MsTypeWithId { id: MsTypeId(1206973160), ty: Native(U8) })]
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid60: function u0:0(i64) system_v {
+    sig0 = (i64) system_v
+    fn0 = u0:61 sig0
+
+block0(v0: i64):
+    v1 = iadd_imm v0, 0
+    v2 = load.i64 v1
+    call fn0(v2)
+    v3 = iconst.i64 0
+    return
+}
+
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:497] - defining function funcid60 with bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:153] - Trying to infer return type for function free from body
+2026-08-04T10:46:26Z WARN [src/backend/compile_function.rs:190] - Could not infer return type for free from body
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry blk_7
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry free
+2026-08-04T10:46:26Z INFO [src/registries/modules.rs:172] - found template Vec, generating struct
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field ptr of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field size of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field cap of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/modules.rs:172] - found template Vec, generating struct
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field ptr of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field size of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field cap of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/modules.rs:172] - found template Vec, generating struct
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field ptr of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field size of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/structs.rs:72] - adding field cap of size 8 and alignment 8
+2026-08-04T10:46:26Z INFO [src/registries/functions.rs:64] - adding function to registry free_[Type(MsTypeWithId { id: MsTypeId(1206973160), ty: Native(U8) })]
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "free", span: 5873..5877 })
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid62: function u0:0(i64) system_v {
+    sig0 = (i64) system_v
+    sig1 = (i64 sext) system_v
+    fn0 = u0:63 sig0
+    fn1 = u0:2 sig1
+
+block0(v0: i64):
+    v1 = iadd_imm v0, 0
+    v2 = load.i64 v1
+    call fn0(v2)
+    v3 = iconst.i64 0
+    call fn1(v0)
+    return
+}
+
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:497] - defining function funcid62 with bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:153] - Trying to infer return type for function panic from body
+2026-08-04T10:46:26Z WARN [src/backend/compile_function.rs:190] - Could not infer return type for panic from body
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "write", span: 6214..6219 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "write", span: 6256..6261 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "write", span: 6311..6316 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "exit", span: 6340..6344 })
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped nl of type: MsTypeId(653300986)
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped prefix of type: MsTypeId(653300986)
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid44: function u0:0(i64) system_v {
+    ss0 = explicit_slot 16
+    ss1 = explicit_slot 16
+    ss2 = explicit_slot 16
+    ss3 = explicit_slot 16
+    gv0 = symbol userextname0
+    gv1 = symbol userextname2
+    sig0 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    sig1 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    sig2 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    sig3 = (i32 sext) system_v
+    fn0 = u0:17 sig0
+    fn1 = u0:17 sig1
+    fn2 = u0:17 sig2
+    fn3 = u0:40 sig3
+
+block0(v0: i64):
+    v1 = iconst.i64 7
+    v2 = stack_addr.i64 ss0
+    v3 = global_value.i64 gv0
+    store v1, v2+8  ; v1 = 7
+    store v3, v2
+    v4 = stack_addr.i64 ss1
+    store v2, v4
+    v5 = iconst.i64 2
+    v6 = stack_addr.i64 ss1
+    v7 = stack_addr.i64 ss1
+    v8 = iadd_imm v6, 0
+    v9 = load.i64 v8
+    v10 = iadd_imm v7, 8
+    v11 = load.i64 v10
+    v12 = call fn0(v5, v9, v11)  ; v5 = 2
+    v13 = iconst.i64 2
+    v14 = iadd_imm v0, 0
+    v15 = load.i64 v14
+    v16 = iadd_imm v0, 8
+    v17 = load.i64 v16
+    v18 = call fn1(v13, v15, v17)  ; v13 = 2
+    v19 = iconst.i64 1
+    v20 = stack_addr.i64 ss2
+    v21 = global_value.i64 gv1
+    store v19, v20+8  ; v19 = 1
+    store v21, v20
+    v22 = stack_addr.i64 ss3
+    store v20, v22
+    v23 = iconst.i64 2
+    v24 = stack_addr.i64 ss3
+    v25 = iconst.i64 1
+    v26 = iadd_imm v24, 0
+    v27 = load.i64 v26
+    v28 = call fn2(v23, v27, v25)  ; v23 = 2, v25 = 1
+    v29 = iconst.i64 1
+    v30 = ireduce.i32 v29  ; v29 = 1
+    call fn3(v30)
+    return
+}
+
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:497] - defining function funcid44 with bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:153] - Trying to infer return type for function print_str from body
+2026-08-04T10:46:26Z WARN [src/backend/compile_function.rs:190] - Could not infer return type for print_str from body
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "write", span: 6383..6388 })
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid45: function u0:0(i64) system_v {
+    sig0 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    fn0 = u0:17 sig0
+
+block0(v0: i64):
+    v1 = iconst.i64 1
+    v2 = iadd_imm v0, 0
+    v3 = load.i64 v2
+    v4 = iadd_imm v0, 8
+    v5 = load.i64 v4
+    v6 = call fn0(v1, v3, v5)  ; v1 = 1
+    return
+}
+
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:497] - defining function funcid45 with bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:153] - Trying to infer return type for function println_str from body
+2026-08-04T10:46:26Z WARN [src/backend/compile_function.rs:190] - Could not infer return type for println_str from body
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "write", span: 6447..6452 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "write", span: 6498..6503 })
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped nl of type: MsTypeId(653300986)
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid46: function u0:0(i64) system_v {
+    ss0 = explicit_slot 16
+    ss1 = explicit_slot 16
+    gv0 = symbol userextname1
+    sig0 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    sig1 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    fn0 = u0:17 sig0
+    fn1 = u0:17 sig1
+
+block0(v0: i64):
+    v1 = iconst.i64 1
+    v2 = iadd_imm v0, 0
+    v3 = load.i64 v2
+    v4 = iadd_imm v0, 8
+    v5 = load.i64 v4
+    v6 = call fn0(v1, v3, v5)  ; v1 = 1
+    v7 = iconst.i64 1
+    v8 = stack_addr.i64 ss0
+    v9 = global_value.i64 gv0
+    store v7, v8+8  ; v7 = 1
+    store v9, v8
+    v10 = stack_addr.i64 ss1
+    store v8, v10
+    v11 = iconst.i64 1
+    v12 = stack_addr.i64 ss1
+    v13 = iconst.i64 1
+    v14 = iadd_imm v12, 0
+    v15 = load.i64 v14
+    v16 = call fn1(v11, v15, v13)  ; v11 = 1, v13 = 1
+    return
+}
+
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:497] - defining function funcid46 with bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:153] - Trying to infer return type for function print_int from body
+2026-08-04T10:46:26Z WARN [src/backend/compile_function.rs:190] - Could not infer return type for print_int from body
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "write", span: 6596..6601 })
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped zero of type: MsTypeId(653300986)
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "write", span: 6718..6723 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:653] - Assignment Operation Ident(Ident { name: "temp", span: 6754..6758 }) = Unary { op: Neg, operand: Ident(Ident { name: "temp", span: 6762..6766 }), span: 6761..6766 }
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped minus of type: MsTypeId(653300986)
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "blk_13", generics: [], refs: [] } -> Ref(Native(U8), true) with type_id MsTypeId(2279586806)
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "blk_14", generics: [], refs: [] } -> Ref(Ref(Native(U8), true), true) with type_id MsTypeId(2971750273)
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:653] - Assignment Operation Ident(Ident { name: "count", span: 7198..7203 }) = Binary { op: Add, lhs: Ident(Ident { name: "count", span: 7206..7211 }), rhs: IntLit { value: 1, span: 7214..7215 }, span: 7206..7215 }
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:653] - Assignment Operation Ident(Ident { name: "temp", span: 7225..7229 }) = Binary { op: Div, lhs: Ident(Ident { name: "temp", span: 7232..7236 }), rhs: IntLit { value: 10, span: 7239..7241 }, span: 7232..7241 }
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped ptr of type: MsTypeId(3589116450)
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped digit of type: MsTypeId(1206973160)
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped rem of type: MsTypeId(2019914344)
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:653] - Assignment Operation Ident(Ident { name: "count", span: 7321..7326 }) = Binary { op: Sub, lhs: Ident(Ident { name: "count", span: 7329..7334 }), rhs: IntLit { value: 1, span: 7337..7338 }, span: 7329..7338 }
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "write", span: 7389..7394 })
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped ptr of type: MsTypeId(3589116450)
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped count of type: MsTypeId(2019914344)
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped buf of type: MsTypeId(2279586806)
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped temp of type: MsTypeId(2019914344)
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid47: function u0:0(i64 sext) system_v {
+    ss0 = explicit_slot 16
+    ss1 = explicit_slot 16
+    ss2 = explicit_slot 8
+    ss3 = explicit_slot 16
+    ss4 = explicit_slot 16
+    ss5 = explicit_slot 20
+    ss6 = explicit_slot 8
+    ss7 = explicit_slot 8
+    ss8 = explicit_slot 8
+    ss9 = explicit_slot 1
+    ss10 = explicit_slot 8
+    ss11 = explicit_slot 8
+    gv0 = symbol userextname0
+    gv1 = symbol userextname2
+    sig0 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    sig1 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    sig2 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    fn0 = u0:17 sig0
+    fn1 = u0:17 sig1
+    fn2 = u0:17 sig2
+
+block0(v0: i64):
+    v26 -> v0
+    v1 = iconst.i64 0
+    v2 = icmp eq v0, v1  ; v1 = 0
+    brif v2, block1, block2
+
+block1:
+    v3 = iconst.i64 1
+    v4 = stack_addr.i64 ss0
+    v5 = global_value.i64 gv0
+    store v3, v4+8  ; v3 = 1
+    store v5, v4
+    v6 = stack_addr.i64 ss1
+    store v4, v6
+    v7 = iconst.i64 1
+    v8 = stack_addr.i64 ss1
+    v9 = iconst.i64 1
+    v10 = iadd_imm v8, 0
+    v11 = load.i64 v10
+    v12 = call fn0(v7, v11, v9)  ; v7 = 1, v9 = 1
+    return
+
+block2:
+    jump block3
+
+block3:
+    v13 = stack_addr.i64 ss2
+    store.i64 v0, v13
+    v14 = iconst.i64 0
+    v15 = icmp.i64 slt v0, v14  ; v14 = 0
+    brif v15, block4, block5
+
+block4:
+    v16 = iconst.i64 1
+    v17 = stack_addr.i64 ss3
+    v18 = global_value.i64 gv1
+    store v16, v17+8  ; v16 = 1
+    store v18, v17
+    v19 = stack_addr.i64 ss4
+    store v17, v19
+    v20 = iconst.i64 1
+    v21 = stack_addr.i64 ss4
+    v22 = iconst.i64 1
+    v23 = iadd_imm v21, 0
+    v24 = load.i64 v23
+    v25 = call fn1(v20, v24, v22)  ; v20 = 1, v22 = 1
+    v27 = ineg.i64 v26
+    v28 = stack_addr.i64 ss2
+    store v27, v28
+    jump block6(v27)
+
+block5:
+    jump block6(v0)
+
+block6(v95: i64):
+    v29 = iconst.i64 0
+    v30 = ireduce.i8 v29  ; v29 = 0
+    v31 = iconst.i64 0
+    v32 = ireduce.i8 v31  ; v31 = 0
+    v33 = iconst.i64 0
+    v34 = ireduce.i8 v33  ; v33 = 0
+    v35 = iconst.i64 0
+    v36 = ireduce.i8 v35  ; v35 = 0
+    v37 = iconst.i64 0
+    v38 = ireduce.i8 v37  ; v37 = 0
+    v39 = iconst.i64 0
+    v40 = ireduce.i8 v39  ; v39 = 0
+    v41 = iconst.i64 0
+    v42 = ireduce.i8 v41  ; v41 = 0
+    v43 = iconst.i64 0
+    v44 = ireduce.i8 v43  ; v43 = 0
+    v45 = iconst.i64 0
+    v46 = ireduce.i8 v45  ; v45 = 0
+    v47 = iconst.i64 0
+    v48 = ireduce.i8 v47  ; v47 = 0
+    v49 = iconst.i64 0
+    v50 = ireduce.i8 v49  ; v49 = 0
+    v51 = iconst.i64 0
+    v52 = ireduce.i8 v51  ; v51 = 0
+    v53 = iconst.i64 0
+    v54 = ireduce.i8 v53  ; v53 = 0
+    v55 = iconst.i64 0
+    v56 = ireduce.i8 v55  ; v55 = 0
+    v57 = iconst.i64 0
+    v58 = ireduce.i8 v57  ; v57 = 0
+    v59 = iconst.i64 0
+    v60 = ireduce.i8 v59  ; v59 = 0
+    v61 = iconst.i64 0
+    v62 = ireduce.i8 v61  ; v61 = 0
+    v63 = iconst.i64 0
+    v64 = ireduce.i8 v63  ; v63 = 0
+    v65 = iconst.i64 0
+    v66 = ireduce.i8 v65  ; v65 = 0
+    v67 = iconst.i64 0
+    v68 = ireduce.i8 v67  ; v67 = 0
+    v69 = stack_addr.i64 ss5
+    store v30, v69
+    store v32, v69+1
+    store v34, v69+2
+    store v36, v69+3
+    store v38, v69+4
+    store v40, v69+5
+    store v42, v69+6
+    store v44, v69+7
+    store v46, v69+8
+    store v48, v69+9
+    store v50, v69+10
+    store v52, v69+11
+    store v54, v69+12
+    store v56, v69+13
+    store v58, v69+14
+    store v60, v69+15
+    store v62, v69+16
+    store v64, v69+17
+    store v66, v69+18
+    store v68, v69+19
+    v70 = stack_addr.i64 ss6
+    store v69, v70
+    v71 = iconst.i64 0
+    v72 = stack_addr.i64 ss7
+    store v71, v72  ; v71 = 0
+    jump block7(v95, v71)  ; v71 = 0
+
+block7(v74: i64, v84: i64):
+    v73 = iconst.i64 0
+    v75 = icmp eq v74, v73  ; v73 = 0
+    brif v75, block9, block10
+
+block9:
+    jump block8
+
+block10:
+    jump block11
+
+block11:
+    v76 = iconst.i64 10
+    v77 = srem.i64 v74, v76  ; v76 = 10
+    v78 = stack_addr.i64 ss8
+    store v77, v78
+    v79 = iconst.i64 48
+    v80 = iadd v79, v77  ; v79 = 48
+    v81 = ireduce.i8 v80
+    v82 = stack_addr.i64 ss9
+    store v81, v82
+    v83 = stack_addr.i64 ss6
+    v85 = iadd v83, v84
+    v86 = stack_addr.i64 ss10
+    store v85, v86
+    v87 = stack_addr.i64 ss10
+    v88 = load.i64 v87
+    store v81, v88
+    v89 = iconst.i64 1
+    v90 = iadd.i64 v84, v89  ; v89 = 1
+    v91 = stack_addr.i64 ss7
+    store v90, v91
+    v92 = iconst.i64 10
+    v93 = sdiv.i64 v74, v92  ; v92 = 10
+    v94 = stack_addr.i64 ss2
+    store v93, v94
+    jump block7(v93, v90)
+
+block8:
+    jump block12(v84)
+
+block12(v97: i64):
+    v96 = iconst.i64 0
+    v98 = icmp eq v97, v96  ; v96 = 0
+    brif v98, block14, block15
+
+block14:
+    jump block13
+
+block15:
+    jump block16
+
+block16:
+    v99 = iconst.i64 1
+    v100 = isub.i64 v97, v99  ; v99 = 1
+    v101 = stack_addr.i64 ss7
+    store v100, v101
+    v102 = stack_addr.i64 ss6
+    v103 = iadd v102, v100
+    v104 = stack_addr.i64 ss11
+    store v103, v104
+    v105 = iconst.i64 1
+    v106 = iconst.i64 1
+    v107 = call fn2(v105, v103, v106)  ; v105 = 1, v106 = 1
+    jump block12(v100)
+
+block13:
+    return
+}
+
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:497] - defining function funcid47 with bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "socket", span: 188..194 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "print_str", span: 236..245 })
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "blk_16", generics: [], refs: [] } -> Ref(Native(I64), true) with type_id MsTypeId(1639582353)
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "setsockopt", span: 333..343 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "htons", span: 446..451 })
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "blk_17", generics: [], refs: [] } -> Ref(Struct(MsStructType { fields: {"sin_port": MsStructFieldValue { offset: 2, ty: MsTypeId(4184355030) }, "sin_addr": MsStructFieldValue { offset: 4, ty: MsTypeId(775872129) }, "sin_family": MsStructFieldValue { offset: 0, ty: MsTypeId(4184355030) }, "zero_0": MsStructFieldValue { offset: 8, ty: MsTypeId(2307031793) }}, size: 16 }), true) with type_id MsTypeId(697231194)
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "bind", span: 532..536 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "print_str", span: 590..599 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "listen", span: 664..670 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "print_str", span: 691..700 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "print_int", span: 757..766 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "print_str", span: 785..794 })
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "blk_21", generics: [], refs: [] } -> Ref(Native(U32), true) with type_id MsTypeId(179226895)
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "accept", span: 973..979 })
+2026-08-04T10:46:26Z WARN [src/registries/types.rs:719] - using hardcoded ref(pointer) size of 8 bytes
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "read", span: 1303..1307 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "write", span: 1475..1480 })
+2026-08-04T10:46:26Z INFO [src/registries/types.rs:843] - Added Type TypeNameWithGenerics { name: "blk_23", generics: [], refs: [] } -> Function(MsDeclaredFunction { arguments: {"p0": MsTypeId(653300986)}, rets: Some(MsTypeId(653300986)), fn_type: Public, func_id: funcid0 }) with type_id MsTypeId(167827838)
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "write", span: 1731..1736 })
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped body of type: MsTypeId(653300986)
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped handler of type: MsTypeId(167827838)
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "write", span: 1894..1899 })
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped default_body of type: MsTypeId(653300986)
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "shutdown", span: 1986..1994 })
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "read", span: 2053..2057 })
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped n of type: MsTypeId(2019914344)
+2026-08-04T10:46:26Z INFO [src/backend/compile_function.rs:1468] - calling a function Ident(Ident { name: "close", span: 2196..2201 })
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped header of type: MsTypeId(653300986)
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped req_len of type: MsTypeId(2019914344)
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped req_buf of type: MsTypeId(1639582353)
+2026-08-04T10:46:26Z WARN [src/scope.rs:100] - Auto Drop (RAII) is disabled, make sure to clean up your variables manually
+2026-08-04T10:46:26Z INFO [src/scope.rs:88] - Dropped client_fd of type: MsTypeId(4267794067)
+2026-08-04T10:46:26Z INFO [/home/ash/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cranelift-object-0.130.2/src/backend.rs:339] - defining function funcid48: function u0:0(i32 sext, i64 sext) -> i32 sext system_v {
+    ss0 = explicit_slot 4
+    ss1 = explicit_slot 16
+    ss2 = explicit_slot 8
+    ss3 = explicit_slot 16
+    ss4 = explicit_slot 16
+    ss5 = explicit_slot 4
+    ss6 = explicit_slot 16
+    ss7 = explicit_slot 16
+    ss8 = explicit_slot 16
+    ss9 = explicit_slot 16
+    ss10 = explicit_slot 16
+    ss11 = explicit_slot 4
+    ss12 = explicit_slot 4
+    ss13 = explicit_slot 512
+    ss14 = explicit_slot 8
+    ss15 = explicit_slot 8
+    ss16 = explicit_slot 16
+    ss17 = explicit_slot 16
+    ss18 = explicit_slot 8
+    ss19 = explicit_slot 16
+    ss20 = explicit_slot 16
+    ss21 = explicit_slot 16
+    ss22 = explicit_slot 16
+    ss23 = explicit_slot 8
+    gv0 = symbol userextname1
+    gv1 = symbol userextname6
+    gv2 = symbol userextname8
+    gv3 = symbol userextname10
+    gv4 = symbol userextname13
+    gv5 = symbol userextname15
+    sig0 = (i32 sext, i32 sext, i32 sext) -> i32 sext system_v
+    sig1 = (i64) system_v
+    sig2 = (i32 sext, i32 sext, i32 sext, i64 sext, i32 uext) -> i32 sext system_v
+    sig3 = (i16 uext) -> i16 uext system_v
+    sig4 = (i32 sext, i64 sext, i32 uext) -> i32 sext system_v
+    sig5 = (i64) system_v
+    sig6 = (i32 sext, i32 sext) -> i32 sext system_v
+    sig7 = (i64) system_v
+    sig8 = (i64 sext) system_v
+    sig9 = (i64) system_v
+    sig10 = (i32 sext, i64 sext, i64 sext) -> i32 sext system_v
+    sig11 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    sig12 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    sig13 = (i64) -> i64 system_v
+    sig14 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    sig15 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    sig16 = (i32 sext, i32 sext) -> i32 sext system_v
+    sig17 = (i64 sext, i64 sext, i64 sext) -> i64 sext system_v
+    sig18 = (i32 sext) -> i32 sext system_v
+    fn0 = u0:19 sig0
+    fn1 = u0:45 sig1
+    fn2 = u0:24 sig2
+    fn3 = u0:26 sig3
+    fn4 = u0:20 sig4
+    fn5 = u0:45 sig5
+    fn6 = u0:21 sig6
+    fn7 = u0:45 sig7
+    fn8 = u0:47 sig8
+    fn9 = u0:45 sig9
+    fn10 = u0:22 sig10
+    fn11 = u0:16 sig11
+    fn12 = u0:17 sig12
+    fn13 = u0:17 sig14
+    fn14 = u0:17 sig15
+    fn15 = u0:25 sig16
+    fn16 = u0:16 sig17
+    fn17 = u0:15 sig18
+
+block0(v0: i32, v1: i64):
+    v2 = iconst.i64 2
+    v3 = iconst.i64 1
+    v4 = iconst.i64 0
+    v5 = ireduce.i32 v2  ; v2 = 2
+    v6 = ireduce.i32 v3  ; v3 = 1
+    v7 = ireduce.i32 v4  ; v4 = 0
+    v8 = call fn0(v5, v6, v7)
+    v9 = stack_addr.i64 ss0
+    store v8, v9
+    v10 = iconst.i64 0
+    v11 = ireduce.i32 v10  ; v10 = 0
+    v12 = icmp slt v8, v11
+    brif v12, block1, block2
+
+block1:
+    v13 = iconst.i64 31
+    v14 = stack_addr.i64 ss1
+    v15 = global_value.i64 gv0
+    store v13, v14+8  ; v13 = 31
+    store v15, v14
+    call fn1(v14)
+    v16 = iconst.i64 1
+    v17 = ireduce.i32 v16  ; v16 = 1
+    return v17
+
+block2:
+    jump block3
+
+block3:
+    v18 = iconst.i64 1
+    v19 = stack_addr.i64 ss2
+    store v18, v19  ; v18 = 1
+    v20 = iconst.i64 1
+    v21 = iconst.i64 2
+    v22 = stack_addr.i64 ss2
+    v23 = iconst.i64 4
+    v24 = ireduce.i32 v20  ; v20 = 1
+    v25 = ireduce.i32 v21  ; v21 = 2
+    v26 = ireduce.i32 v23  ; v23 = 4
+    v27 = call fn2(v8, v24, v25, v22, v26)
+    v28 = stack_addr.i64 ss3
+    v29 = iconst.i64 2
+    v30 = ireduce.i16 v29  ; v29 = 2
+    store v30, v28
+    v31 = ireduce.i16 v0
+    v32 = call fn3(v31)
+    store v32, v28+2
+    v33 = iconst.i64 0
+    v34 = ireduce.i32 v33  ; v33 = 0
+    store v34, v28+4
+    v35 = iconst.i64 0
+    store v35, v28+8  ; v35 = 0
+    v36 = stack_addr.i64 ss4
+    store v28, v36
+    v37 = stack_addr.i64 ss4
+    v38 = iconst.i64 16
+    v39 = ireduce.i32 v38  ; v38 = 16
+    v40 = call fn4(v8, v37, v39)
+    v41 = stack_addr.i64 ss5
+    store v40, v41
+    v42 = iconst.i64 0
+    v43 = ireduce.i32 v42  ; v42 = 0
+    v44 = icmp slt v40, v43
+    brif v44, block4, block5
+
+block4:
+    v45 = iconst.i64 29
+    v46 = stack_addr.i64 ss6
+    v47 = global_value.i64 gv1
+    store v45, v46+8  ; v45 = 29
+    store v47, v46
+    call fn5(v46)
+    v48 = iconst.i64 1
+    v49 = ireduce.i32 v48  ; v48 = 1
+    return v49
+
+block5:
+    jump block6
+
+block6:
+    v50 = iconst.i64 10
+    v51 = ireduce.i32 v50  ; v50 = 10
+    v52 = call fn6(v8, v51)
+    v53 = iconst.i64 47
+    v54 = stack_addr.i64 ss7
+    v55 = global_value.i64 gv2
+    store v53, v54+8  ; v53 = 47
+    store v55, v54
+    call fn7(v54)
+    v56 = sextend.i64 v0
+    call fn8(v56)
+    v57 = iconst.i64 5
+    v58 = stack_addr.i64 ss8
+    v59 = global_value.i64 gv3
+    store v57, v58+8  ; v57 = 5
+    store v59, v58
+    call fn9(v58)
+    v60 = stack_addr.i64 ss9
+    v61 = iconst.i64 0
+    v62 = ireduce.i16 v61  ; v61 = 0
+    store v62, v60
+    v63 = iconst.i64 0
+    v64 = ireduce.i16 v63  ; v63 = 0
+    store v64, v60+2
+    v65 = iconst.i64 0
+    v66 = ireduce.i32 v65  ; v65 = 0
+    store v66, v60+4
+    v67 = iconst.i64 0
+    store v67, v60+8  ; v67 = 0
+    v68 = stack_addr.i64 ss10
+    store v60, v68
+    v69 = iconst.i64 16
+    v70 = ireduce.i32 v69  ; v69 = 16
+    v71 = stack_addr.i64 ss11
+    store v70, v71
+    jump block7
+
+block7(v74: i32, v209: i64):
+    v164 -> v209
+    v166 -> v164
+    v72 = stack_addr.i64 ss10
+    v73 = stack_addr.i64 ss11
+    v75 = call fn10(v74, v72, v73)
+    v146 -> v75
+    v173 -> v146
+    v186 -> v146
+    v196 -> v146
+    v199 -> v146
+    v76 = stack_addr.i64 ss12
+    store v75, v76
+    v77 = iconst.i64 0
+    v78 = ireduce.i32 v77  ; v77 = 0
+    v79 = icmp sge v75, v78
+    brif v79, block9, block10
+
+block9:
+    v80 = iconst.i64 0
+    v81 = iconst.i64 0
+    v82 = iconst.i64 0
+    v83 = iconst.i64 0
+    v84 = iconst.i64 0
+    v85 = iconst.i64 0
+    v86 = iconst.i64 0
+    v87 = iconst.i64 0
+    v88 = iconst.i64 0
+    v89 = iconst.i64 0
+    v90 = iconst.i64 0
+    v91 = iconst.i64 0
+    v92 = iconst.i64 0
+    v93 = iconst.i64 0
+    v94 = iconst.i64 0
+    v95 = iconst.i64 0
+    v96 = iconst.i64 0
+    v97 = iconst.i64 0
+    v98 = iconst.i64 0
+    v99 = iconst.i64 0
+    v100 = iconst.i64 0
+    v101 = iconst.i64 0
+    v102 = iconst.i64 0
+    v103 = iconst.i64 0
+    v104 = iconst.i64 0
+    v105 = iconst.i64 0
+    v106 = iconst.i64 0
+    v107 = iconst.i64 0
+    v108 = iconst.i64 0
+    v109 = iconst.i64 0
+    v110 = iconst.i64 0
+    v111 = iconst.i64 0
+    v112 = iconst.i64 0
+    v113 = iconst.i64 0
+    v114 = iconst.i64 0
+    v115 = iconst.i64 0
+    v116 = iconst.i64 0
+    v117 = iconst.i64 0
+    v118 = iconst.i64 0
+    v119 = iconst.i64 0
+    v120 = iconst.i64 0
+    v121 = iconst.i64 0
+    v122 = iconst.i64 0
+    v123 = iconst.i64 0
+    v124 = iconst.i64 0
+    v125 = iconst.i64 0
+    v126 = iconst.i64 0
+    v127 = iconst.i64 0
+    v128 = iconst.i64 0
+    v129 = iconst.i64 0
+    v130 = iconst.i64 0
+    v131 = iconst.i64 0
+    v132 = iconst.i64 0
+    v133 = iconst.i64 0
+    v134 = iconst.i64 0
+    v135 = iconst.i64 0
+    v136 = iconst.i64 0
+    v137 = iconst.i64 0
+    v138 = iconst.i64 0
+    v139 = iconst.i64 0
+    v140 = iconst.i64 0
+    v141 = iconst.i64 0
+    v142 = iconst.i64 0
+    v143 = iconst.i64 0
+    v144 = stack_addr.i64 ss13
+    v169 -> v144
+    v201 -> v144
+    v207 -> v144
+    store v80, v144  ; v80 = 0
+    store v81, v144+8  ; v81 = 0
+    store v82, v144+16  ; v82 = 0
+    store v83, v144+24  ; v83 = 0
+    store v84, v144+32  ; v84 = 0
+    store v85, v144+40  ; v85 = 0
+    store v86, v144+48  ; v86 = 0
+    store v87, v144+56  ; v87 = 0
+    store v88, v144+64  ; v88 = 0
+    store v89, v144+72  ; v89 = 0
+    store v90, v144+80  ; v90 = 0
+    store v91, v144+88  ; v91 = 0
+    store v92, v144+96  ; v92 = 0
+    store v93, v144+104  ; v93 = 0
+    store v94, v144+112  ; v94 = 0
+    store v95, v144+120  ; v95 = 0
+    store v96, v144+128  ; v96 = 0
+    store v97, v144+136  ; v97 = 0
+    store v98, v144+144  ; v98 = 0
+    store v99, v144+152  ; v99 = 0
+    store v100, v144+160  ; v100 = 0
+    store v101, v144+168  ; v101 = 0
+    store v102, v144+176  ; v102 = 0
+    store v103, v144+184  ; v103 = 0
+    store v104, v144+192  ; v104 = 0
+    store v105, v144+200  ; v105 = 0
+    store v106, v144+208  ; v106 = 0
+    store v107, v144+216  ; v107 = 0
+    store v108, v144+224  ; v108 = 0
+    store v109, v144+232  ; v109 = 0
+    store v110, v144+240  ; v110 = 0
+    store v111, v144+248  ; v111 = 0
+    store v112, v144+256  ; v112 = 0
+    store v113, v144+264  ; v113 = 0
+    store v114, v144+272  ; v114 = 0
+    store v115, v144+280  ; v115 = 0
+    store v116, v144+288  ; v116 = 0
+    store v117, v144+296  ; v117 = 0
+    store v118, v144+304  ; v118 = 0
+    store v119, v144+312  ; v119 = 0
+    store v120, v144+320  ; v120 = 0
+    store v121, v144+328  ; v121 = 0
+    store v122, v144+336  ; v122 = 0
+    store v123, v144+344  ; v123 = 0
+    store v124, v144+352  ; v124 = 0
+    store v125, v144+360  ; v125 = 0
+    store v126, v144+368  ; v126 = 0
+    store v127, v144+376  ; v127 = 0
+    store v128, v144+384  ; v128 = 0
+    store v129, v144+392  ; v129 = 0
+    store v130, v144+400  ; v130 = 0
+    store v131, v144+408  ; v131 = 0
+    store v132, v144+416  ; v132 = 0
+    store v133, v144+424  ; v133 = 0
+    store v134, v144+432  ; v134 = 0
+    store v135, v144+440  ; v135 = 0
+    store v136, v144+448  ; v136 = 0
+    store v137, v144+456  ; v137 = 0
+    store v138, v144+464  ; v138 = 0
+    store v139, v144+472  ; v139 = 0
+    store v140, v144+480  ; v140 = 0
+    store v141, v144+488  ; v141 = 0
+    store v142, v144+496  ; v142 = 0
+    store v143, v144+504  ; v143 = 0
+    v145 = stack_addr.i64 ss14
+    store v144, v145
+    v147 = sextend.i64 v146
+    v148 = iconst.i64 64
+    v149 = call fn11(v147, v144, v148)  ; v148 = 64
+    v170 -> v149
+    v150 = stack_addr.i64 ss15
+    store v149, v150
+    v151 = iconst.i64 78
+    v152 = stack_addr.i64 ss16
+    v153 = global_value.i64 gv4
+    store v151, v152+8  ; v151 = 78
+    store v153, v152
+    v154 = stack_addr.i64 ss17
+    store v152, v154
+    v155 = sextend.i64 v146
+    v156 = stack_addr.i64 ss17
+    v157 = stack_addr.i64 ss17
+    v158 = iadd_imm v156, 0
+    v159 = load.i64 v158
+    v160 = iadd_imm v157, 8
+    v161 = load.i64 v160
+    v162 = call fn12(v155, v159, v161)
+    v163 = iconst.i64 0
+    v165 = icmp.i64 ne v164, v163  ; v163 = 0
+    brif v165, block12, block13
+
+block12:
+    v167 = stack_addr.i64 ss18
+    store.i64 v166, v167
+    v168 = stack_addr.i64 ss19
+    store.i64 v169, v168
+    store.i64 v170, v168+8
+    v171 = call_indirect.i64 sig13, v166(v168)
+    v172 = stack_addr.i64 ss20
+    store v171, v172
+    v174 = sextend.i64 v173
+    v175 = stack_addr.i64 ss20
+    v176 = stack_addr.i64 ss20
+    v177 = iadd_imm v175, 0
+    v178 = load.i64 v177
+    v179 = iadd_imm v176, 8
+    v180 = load.i64 v179
+    v181 = call fn13(v174, v178, v180)
+    jump block14
+
+block13:
+    v182 = iconst.i64 38
+    v183 = stack_addr.i64 ss21
+    v184 = global_value.i64 gv5
+    store v182, v183+8  ; v182 = 38
+    store v184, v183
+    v185 = stack_addr.i64 ss22
+    store v183, v185
+    v187 = sextend.i64 v186
+    v188 = stack_addr.i64 ss22
+    v189 = stack_addr.i64 ss22
+    v190 = iadd_imm v188, 0
+    v191 = load.i64 v190
+    v192 = iadd_imm v189, 8
+    v193 = load.i64 v192
+    v194 = call fn14(v187, v191, v193)
+    jump block14
+
+block14:
+    v195 = iconst.i64 1
+    v197 = ireduce.i32 v195  ; v195 = 1
+    v198 = call fn15(v146, v197)
+    jump block15
+
+block15:
+    v200 = sextend.i64 v199
+    v202 = iconst.i64 64
+    v203 = call fn16(v200, v201, v202)  ; v202 = 64
+    v204 = stack_addr.i64 ss23
+    store v203, v204
+    v205 = iconst.i64 0
+    v206 = icmp sle v203, v205  ; v205 = 0
+    brif v206, block17, block18
+
+block17:
+    jump block16
+
+block18:
+    jump block19
+
+block19:
+    jump block15
+
+block16:
+    v208 = call fn17(v199)
+    jump block11
+    v210 = iconst.i64 0
+    v211 = ireduce.i32 v210  ; v210 = 0
+    return v211
+
+block10:
+    jump block11
+
+block11:
+    jump block15
+}
+
+
+thread 'main' (132437) panicked at src/backend/compile_function.rs:331:42:
+called `Result::unwrap()` on an `Err` value: Compilation(Verifier(VerifierErrors([VerifierError { location: inst103, context: Some("jump block7"), message: "mismatched argument count for `jump block7`: got 0, expected 2" }, VerifierError { location: inst306, context: Some("v203 = call fn16(v200, v201, v202)  ; v202 = 64"), message: "uses value v201 from non-dominating inst177" }])))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Error: Compilation failed.

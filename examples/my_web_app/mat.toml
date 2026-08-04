@@ -1,0 +1,7 @@
+[package]
+name = "my_web_app"
+version = "0.0.1"
+type = "bin"
+
+[dependencies.async_http]
+path = "../async_http"

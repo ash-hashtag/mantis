@@ -224,8 +224,22 @@ impl MsModule {
                 if let Some(func) = self.fn_registry.registry.get(key) {
                     return Some(MsResolved::Function(func.clone()));
                 }
+                if let Some(func) = self
+                    .fn_registry
+                    .registry
+                    .iter()
+                    .find(|(k, _)| k.ends_with(&format!(".{}", key)))
+                    .map(|(_, v)| v)
+                {
+                    return Some(MsResolved::Function(func.clone()));
+                }
                 if let Some(template) = self.fn_templates.registry.get(key) {
                     return Some(MsResolved::GenericFunction(template.clone()));
+                }
+                for sub in self.submodules.values_mut() {
+                    if let Some(res) = sub.resolve(type_name) {
+                        return Some(res);
+                    }
                 }
                 return None;
             }

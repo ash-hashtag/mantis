@@ -296,7 +296,7 @@ fn handle_build(_release: bool) -> Result<PathBuf> {
     let manifest_str = fs::read_to_string(manifest_path)?;
     let manifest: Manifest = toml::from_str(&manifest_str)?;
 
-    let dep_paths = resolve_dependencies(&manifest)?;
+    let _dep_paths = resolve_dependencies(&manifest)?;
 
     let build_dir = Path::new("build");
     fs::create_dir_all(build_dir)?;
@@ -331,19 +331,34 @@ fn handle_build(_release: bool) -> Result<PathBuf> {
         }
     }
 
-    for dep_path in &dep_paths {
-        let dep_src = dep_path.join("src");
-        let src_to_check = if dep_src.exists() { &dep_src } else { dep_path };
-
-        if let Ok(entries) = fs::read_dir(src_to_check) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("ms") {
-                    let filename = path.file_name().unwrap();
-                    let target_in_build = build_dir.join(filename);
-                    let _ = fs::copy(&path, &target_in_build);
+    for (name, dep_val) in &manifest.dependencies {
+        let dep_path = match dep_val {
+            DependencyValue::Simple(s) => PathBuf::from(s),
+            DependencyValue::Detailed(d) => {
+                if let Some(ref p) = d.path {
+                    PathBuf::from(p)
+                } else if let Some(ref _g) = d.git {
+                    build_dir.join("deps").join(name)
+                } else {
+                    continue;
                 }
             }
+        };
+
+        let lib_cand = dep_path.join("src/lib.ms");
+        let cand = if lib_cand.exists() {
+            lib_cand
+        } else {
+            dep_path.join(format!("{}.ms", name))
+        };
+
+        if cand.exists() {
+            let target_root = PathBuf::from(format!("{}.ms", name));
+            let target_in_src = Path::new("src").join(format!("{}.ms", name));
+            let target_in_build = build_dir.join(format!("{}.ms", name));
+            let _ = fs::copy(&cand, &target_root);
+            let _ = fs::copy(&cand, &target_in_src);
+            let _ = fs::copy(&cand, &target_in_build);
         }
     }
 

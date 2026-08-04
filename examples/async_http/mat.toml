@@ -1,0 +1,6 @@
+[package]
+name = "async_http"
+version = "0.0.1"
+type = "lib"
+
+[dependencies]

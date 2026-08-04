@@ -917,7 +917,73 @@ pub fn compile_node(
         },
         Expr::Call { callee, args, span } => {
             if let Expr::Field { object, field, .. } = &**callee {
-                if let Some(obj_res) = compile_node(object, module, fbx, ms_ctx) {
+                let obj_node_res = compile_node(object, module, fbx, ms_ctx);
+                if obj_node_res.is_none() {
+                    if let Expr::Ident(mod_ident) = &**object {
+                        let full_fn_name = format!("{}.{}", mod_ident.name, field.name);
+                        let simple_fn_name = field.name.to_string();
+                        let maybe_mod_func = ms_ctx
+                            .current_module
+                            .fn_registry
+                            .registry
+                            .get(full_fn_name.as_str())
+                            .or_else(|| {
+                                ms_ctx
+                                    .current_module
+                                    .fn_registry
+                                    .registry
+                                    .get(simple_fn_name.as_str())
+                            })
+                            .cloned();
+
+                        if let Some(func) = maybe_mod_func {
+                            let func_ref = module.declare_func_in_func(func.func_id, fbx.func);
+                            let args_res: Vec<NodeResult> = args
+                                .iter()
+                                .map(|x| compile_node(x, module, fbx, ms_ctx).unwrap())
+                                .collect();
+
+                            let args_cl_vals: Vec<Value> = args_res
+                                .iter()
+                                .zip(func.arguments.values())
+                                .map(|(x, input_ty)| {
+                                    let expected_ty = ms_ctx
+                                        .current_module
+                                        .type_registry
+                                        .get_from_type_id(*input_ty)
+                                        .unwrap();
+                                    let target_ty = MsTypeWithId {
+                                        id: *input_ty,
+                                        ty: expected_ty,
+                                    };
+                                    let casted =
+                                        compile_cast(x.clone(), target_ty, module, fbx, ms_ctx);
+                                    casted.value(fbx, ms_ctx)
+                                })
+                                .collect();
+
+                            let inst = fbx.ins().call(func_ref, &args_cl_vals);
+                            let result = fbx.inst_results(inst);
+                            if !result.is_empty() {
+                                return Some(NodeResult::Val(MsVal::new(
+                                    func.rets.unwrap(),
+                                    result[0],
+                                )));
+                            } else {
+                                let void_ty = ms_ctx
+                                    .current_module
+                                    .type_registry
+                                    .get_from_str("i64")
+                                    .unwrap();
+                                return Some(NodeResult::Val(MsVal::new(
+                                    void_ty.id,
+                                    fbx.ins().iconst(types::I64, 0),
+                                )));
+                            }
+                        }
+                    }
+                }
+                if let Some(obj_res) = obj_node_res {
                     let obj_ty_id = obj_res.ty();
                     let obj_ty = ms_ctx
                         .current_module
@@ -1428,6 +1494,16 @@ pub fn compile_node(
                     .get_from_str("i32")
                     .unwrap();
                 return Some(NodeResult::TypeRef(dummy_ty));
+            } else if let Some(func) = ms_ctx.current_module.fn_registry.registry.get(var_name) {
+                let func_ref = module.declare_func_in_func(func.func_id, fbx.func);
+                let func_ptr = fbx.ins().func_addr(types::I64, func_ref);
+                let func_ty_id = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_from_str("i64")
+                    .unwrap()
+                    .id;
+                return Some(NodeResult::Val(MsVal::new(func_ty_id, func_ptr)));
             } else {
                 panic!("undefined {} word or type name in current scope", var_name,);
             }

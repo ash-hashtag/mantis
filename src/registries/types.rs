@@ -220,8 +220,10 @@ impl MsNativeType {
     }
 
     pub fn cast_to(&self, lhs: Value, r: &MsType, fbx: &mut FunctionBuilder) -> Value {
-        let MsType::Native(rnty) = r else {
-            panic!("Non native casting not supported yet");
+        let rnty = match r {
+            MsType::Native(nty) => nty,
+            MsType::Function(_) | MsType::Ref(_, _) => return lhs,
+            _ => panic!("Non native casting not supported yet"),
         };
         let diff = r.size() as isize - self.size() as isize;
         let cl_type = rnty.to_cl_type().unwrap();
