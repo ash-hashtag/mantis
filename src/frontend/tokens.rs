@@ -16,8 +16,7 @@ use crate::{
     ms::MsContext,
     registries::{
         functions::{
-            FunctionType, MsFunctionRegistry, MsFunctionTemplates, MsFunctionType,
-            MsTraitTemplates,
+            FunctionType, MsFunctionRegistry, MsFunctionTemplates, MsFunctionType, MsTraitTemplates,
         },
         modules::{MsModule, MsModuleRegistry},
         traits::MsTraitRegistry,
@@ -27,8 +26,6 @@ use crate::{
     },
     scope::{MsLoopScopes, MsScopes, MsVarScopes},
 };
-
-
 
 use mantis_parser::token::Token as MantisLexerTokens;
 

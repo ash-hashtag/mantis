@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use cranelift::prelude::{FunctionBuilder, Value, Variable};
 use cranelift::codegen::ir::StackSlot;
+use cranelift::prelude::{FunctionBuilder, InstBuilder, Value, Variable};
 
 use super::{
     types::{MsType, MsTypeId},
@@ -34,7 +34,22 @@ impl MsVar {
         }
     }
 
-    pub fn value(&self, fbx: &mut FunctionBuilder, _ms_ctx: &crate::ms::MsContext) -> Value {
+    pub fn value(&self, fbx: &mut FunctionBuilder, ms_ctx: &crate::ms::MsContext) -> Value {
+        let ty = ms_ctx
+            .current_module
+            .type_registry
+            .get_from_type_id(self.ty_id);
+        if let Some(crate::registries::types::MsType::Ref(_, _)) = ty {
+            if let Some(ss) = self.stack_slot {
+                let ptr = fbx.ins().stack_addr(cranelift::prelude::types::I64, ss, 0);
+                return fbx.ins().load(
+                    cranelift::prelude::types::I64,
+                    cranelift::prelude::MemFlags::new(),
+                    ptr,
+                    0,
+                );
+            }
+        }
         fbx.use_var(self.c_var)
     }
 }

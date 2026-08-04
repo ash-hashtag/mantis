@@ -36,7 +36,10 @@ impl<T> BiDerectionalIterator<T> {
 
 impl<T> Clone for BiDerectionalIterator<T> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone(), index: self.index.clone() }
+        Self {
+            inner: self.inner.clone(),
+            index: self.index.clone(),
+        }
     }
 }
 
@@ -47,7 +50,6 @@ impl<T> Deref for BiDerectionalIterator<T> {
         self.get()
     }
 }
-
 
 impl<T> Iterator for BiDerectionalIterator<T> {
     type Item = BiDerectionalIterator<T>;

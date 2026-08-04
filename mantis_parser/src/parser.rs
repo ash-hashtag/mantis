@@ -119,6 +119,12 @@ impl Parser {
 
     fn parse_declaration(&mut self) -> PResult<Declaration> {
         match self.peek() {
+            Some(Token::Async) => {
+                self.advance();
+                let mut fn_decl = self.parse_fn_decl()?;
+                fn_decl.is_async = true;
+                Ok(Declaration::Function(fn_decl))
+            }
             Some(Token::Fn) => Ok(Declaration::Function(self.parse_fn_decl()?)),
             Some(Token::Type) => Ok(Declaration::TypeDef(self.parse_type_def()?)),
             Some(Token::Import) => Ok(Declaration::Import(self.parse_import()?)),
@@ -286,6 +292,7 @@ impl Parser {
             where_clause,
             body,
             is_extern,
+            is_async: false,
             trailing_params,
             span,
         })
@@ -473,6 +480,19 @@ impl Parser {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     fn parse_type_name(&mut self) -> PResult<TypeExpr> {
+        // Handle bracket type: [u8] or [i32]
+        if matches!(self.peek(), Some(Token::LBracket)) {
+            let start_span = self.peek_span();
+            self.advance();
+            let inner = self.parse_type_name()?;
+            self.expect(&Token::RBracket)?;
+            let span = start_span.merge(self.prev_span());
+            return Ok(TypeExpr::Generic(
+                Box::new(TypeExpr::Named(Ident::new("Array", span))),
+                vec![inner],
+            ));
+        }
+
         // Handle function type: (i32, f32) i64
         if matches!(self.peek(), Some(Token::LParen)) {
             self.advance();
@@ -561,6 +581,7 @@ impl Parser {
                     | Token::At
                     | Token::Amp
                     | Token::LParen
+                    | Token::LBracket
                     | Token::CompilerFn(_)
                     | Token::CompileTimeType(_)
             )
@@ -612,8 +633,12 @@ impl Parser {
 
     fn parse_let_stmt(&mut self) -> PResult<Statement> {
         let start_span = self.peek_span();
-        let mutable = matches!(self.peek(), Some(Token::Mut));
-        self.advance(); // consume `let` or `mut`
+        let mut mutable = false;
+        if self.eat(&Token::Let) {
+            mutable = self.eat(&Token::Mut);
+        } else if self.eat(&Token::Mut) {
+            mutable = true;
+        }
 
         let name = self.expect_ident()?;
 
@@ -841,9 +866,18 @@ impl Parser {
                     continue;
                 }
 
-                // Special: `.` field access
+                // Special: `.` field access or `.await`
                 if matches!(self.peek(), Some(Token::Dot)) {
                     self.advance();
+                    if matches!(self.peek(), Some(Token::Await)) {
+                        let await_span = self.advance().span;
+                        let span = lhs.span().merge(await_span);
+                        lhs = Expr::Await {
+                            expr: Box::new(lhs),
+                            span,
+                        };
+                        continue;
+                    }
                     let field = self.expect_ident()?;
                     let span = lhs.span().merge(field.span);
                     lhs = Expr::Field {
@@ -893,6 +927,16 @@ impl Parser {
                     span: full_span,
                 })
             }
+            Some(Token::Bang) => {
+                let span = self.advance().span;
+                let operand = self.parse_expr(PREFIX_BP)?;
+                let full_span = span.merge(operand.span());
+                Ok(Expr::Unary {
+                    op: UnaryOp::Not,
+                    operand: Box::new(operand),
+                    span: full_span,
+                })
+            }
             Some(Token::At) => {
                 let span = self.advance().span;
                 let operand = self.parse_expr(PREFIX_BP)?;
@@ -912,6 +956,45 @@ impl Parser {
                     operand: Box::new(operand),
                     span: full_span,
                 })
+            }
+            Some(Token::Await) => {
+                let span = self.advance().span;
+                let operand = self.parse_expr(PREFIX_BP)?;
+                let full_span = span.merge(operand.span());
+                Ok(Expr::Await {
+                    expr: Box::new(operand),
+                    span: full_span,
+                })
+            }
+            Some(Token::Yield) => {
+                let span = self.advance().span;
+                let operand = self.parse_expr(PREFIX_BP)?;
+                let full_span = span.merge(operand.span());
+                Ok(Expr::Yield {
+                    expr: Box::new(operand),
+                    span: full_span,
+                })
+            }
+            Some(Token::Async) => {
+                let span = self.advance().span;
+                if matches!(self.peek(), Some(Token::Fn)) {
+                    let fn_decl = self.parse_fn_decl()?;
+                    let full_span = span.merge(fn_decl.span);
+                    Ok(Expr::Lambda {
+                        decl: Box::new(FnDecl {
+                            is_async: true,
+                            ..fn_decl
+                        }),
+                        span: full_span,
+                    })
+                } else {
+                    let block = self.parse_block()?;
+                    let full_span = span.merge(block.span);
+                    Ok(Expr::AsyncBlock {
+                        body: block,
+                        span: full_span,
+                    })
+                }
             }
             Some(Token::Star) => {
                 // For now, * in prefix position is not used for deref anymore (moved to @)

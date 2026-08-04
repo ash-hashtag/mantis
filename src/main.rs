@@ -135,17 +135,18 @@ fn handle0(args: Args) {
         );
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     {
+        println!("Compiling C executable with cc...");
         std::fs::create_dir_all(&args.cache).unwrap_or(());
-        let default_exe = std::path::PathBuf::from(&args.cache).join(&args.module_name).to_str().unwrap().to_string();
+        let default_exe = std::path::PathBuf::from(&args.cache)
+            .join(&args.module_name)
+            .to_str()
+            .unwrap()
+            .to_string();
         let exe_file_path = args.exe.unwrap_or(default_exe);
 
-        assert!(run_cmd(
-            "cc",
-            &[&obj_file_path, "-o", &exe_file_path]
-        )
-        .success());
+        assert!(run_cmd("cc", &[&obj_file_path, "-pthread", "-o", &exe_file_path]).success());
 
         log::info!("executable created at {}", exe_file_path);
 

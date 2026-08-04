@@ -2,14 +2,12 @@ use cranelift::prelude::*;
 use cranelift_module::{default_libcall_names, DataDescription, DataId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use mantis_parser::ast::{
-    Block, BlockItem, Declaration, Expr, FieldInit, Program, Statement,
-    TypeDef, TypeDefBody, TypeExpr,
+    Block, BlockItem, Declaration, Expr, FieldInit, Program, Statement, TypeDef, TypeDefBody,
+    TypeExpr,
 };
 use std::collections::HashMap;
 
-use super::scope_env::{
-    ScopeEnv, StructFieldInfo, StructLayout, TypeRegistry, VarInfo,
-};
+use super::scope_env::{ScopeEnv, StructFieldInfo, StructLayout, TypeRegistry, VarInfo};
 
 /// Resolve a type name string to its Cranelift IR type.
 /// For now, only primitive numeric types are supported.
@@ -126,7 +124,8 @@ pub fn compile_binary(program: Program, module_name: &str) -> anyhow::Result<Vec
     let mut malloc_sig = module.make_signature();
     malloc_sig.params.push(AbiParam::new(types::I64));
     malloc_sig.returns.push(AbiParam::new(types::I64));
-    let malloc_id = module.declare_function("malloc", Linkage::Import, &malloc_sig)
+    let malloc_id = module
+        .declare_function("malloc", Linkage::Import, &malloc_sig)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     functions.insert("malloc".to_string(), malloc_id);
 
@@ -256,8 +255,22 @@ fn compile_block(
             break;
         }
         match item {
-            BlockItem::Statement(Statement::Let { name, value, mutable, ty, .. }) => {
-                let val = compile_expr(builder, module, value, functions, data_objects, env, type_registry)?;
+            BlockItem::Statement(Statement::Let {
+                name,
+                value,
+                mutable,
+                ty,
+                ..
+            }) => {
+                let val = compile_expr(
+                    builder,
+                    module,
+                    value,
+                    functions,
+                    data_objects,
+                    env,
+                    type_registry,
+                )?;
                 let cl_ty = builder.func.dfg.value_type(val);
                 let var = builder.declare_var(cl_ty);
                 builder.def_var(var, val);
@@ -281,26 +294,59 @@ fn compile_block(
                 {
                     // ── Field assignment: `a.b = expr` ──────────────────
                     if let Expr::Field { .. } = &**lhs {
-                        compile_field_assign(builder, module, lhs, rhs, functions, data_objects, env, type_registry)?;
+                        compile_field_assign(
+                            builder,
+                            module,
+                            lhs,
+                            rhs,
+                            functions,
+                            data_objects,
+                            env,
+                            type_registry,
+                        )?;
                         continue;
                     }
 
                     // ── Simple variable assignment: `a = expr` ──────────
                     if let Expr::Ident(id) = &**lhs {
-                        let var_info = env.resolve_mut(&id.name)
+                        let var_info = env
+                            .resolve_mut(&id.name)
                             .map_err(|e| anyhow::anyhow!("{}", e))?;
                         let var = var_info.variable;
-                        let val =
-                            compile_expr(builder, module, rhs, functions, data_objects, env, type_registry)?;
+                        let val = compile_expr(
+                            builder,
+                            module,
+                            rhs,
+                            functions,
+                            data_objects,
+                            env,
+                            type_registry,
+                        )?;
                         builder.def_var(var, val);
                         continue;
                     }
                 }
-                compile_expr(builder, module, expr, functions, data_objects, env, type_registry)?;
+                compile_expr(
+                    builder,
+                    module,
+                    expr,
+                    functions,
+                    data_objects,
+                    env,
+                    type_registry,
+                )?;
             }
             BlockItem::Statement(Statement::Return { value, .. }) => {
                 let ret_val = if let Some(expr) = value {
-                    compile_expr(builder, module, expr, functions, data_objects, env, type_registry)?
+                    compile_expr(
+                        builder,
+                        module,
+                        expr,
+                        functions,
+                        data_objects,
+                        env,
+                        type_registry,
+                    )?
                 } else {
                     if is_main {
                         builder.ins().iconst(types::I32, 0)
@@ -318,13 +364,15 @@ fn compile_block(
                 has_returned = true;
             }
             BlockItem::Statement(Statement::Break { .. }) => {
-                let tgt = env.current_break_target()
+                let tgt = env
+                    .current_break_target()
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
                 builder.ins().jump(tgt, &[]);
                 has_returned = true;
             }
             BlockItem::Statement(Statement::Continue { .. }) => {
-                let tgt = env.current_continue_target()
+                let tgt = env
+                    .current_continue_target()
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
                 builder.ins().jump(tgt, &[]);
                 has_returned = true;
@@ -435,7 +483,16 @@ fn compile_block(
             }
             BlockItem::Block(b) => {
                 env.enter_scope();
-                let ret = compile_block(builder, module, b, functions, data_objects, env, is_main, type_registry)?;
+                let ret = compile_block(
+                    builder,
+                    module,
+                    b,
+                    functions,
+                    data_objects,
+                    env,
+                    is_main,
+                    type_registry,
+                )?;
                 env.exit_scope();
                 if ret {
                     has_returned = true;
@@ -510,17 +567,29 @@ fn resolve_field_chain(
     match expr {
         Expr::Field { object, field, .. } => {
             // Recursively resolve the object part.
-            let (parent_ptr, parent_struct_name) = resolve_object_ptr(builder, object, env, type_registry)?;
-            let layout = type_registry.get_struct(&parent_struct_name)
+            let (parent_ptr, parent_struct_name) =
+                resolve_object_ptr(builder, object, env, type_registry)?;
+            let layout = type_registry
+                .get_struct(&parent_struct_name)
                 .ok_or_else(|| anyhow::anyhow!("'{}' is not a struct type", parent_struct_name))?;
-            let field_info = layout.get_field(&field.name)
-                .ok_or_else(|| anyhow::anyhow!("struct '{}' has no field '{}'", parent_struct_name, field.name))?
+            let field_info = layout
+                .get_field(&field.name)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "struct '{}' has no field '{}'",
+                        parent_struct_name,
+                        field.name
+                    )
+                })?
                 .clone();
 
             let field_ptr = builder.ins().iadd_imm(parent_ptr, field_info.offset as i64);
             Ok((field_ptr, field_info))
         }
-        _ => Err(anyhow::anyhow!("Expected field access expression, got {:?}", expr)),
+        _ => Err(anyhow::anyhow!(
+            "Expected field access expression, got {:?}",
+            expr
+        )),
     }
 }
 
@@ -534,9 +603,12 @@ fn resolve_object_ptr(
 ) -> anyhow::Result<(Value, String)> {
     match expr {
         Expr::Ident(id) => {
-            let var_info = env.resolve(&id.name)
+            let var_info = env
+                .resolve(&id.name)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
-            let struct_name = var_info.struct_type_name.as_ref()
+            let struct_name = var_info
+                .struct_type_name
+                .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("variable '{}' is not a struct", id.name))?
                 .clone();
             let ptr = builder.use_var(var_info.variable);
@@ -546,14 +618,20 @@ fn resolve_object_ptr(
             // Nested field: resolve the chain, get the pointer, and determine the
             // struct type of the resulting field.
             let (field_ptr, field_info) = resolve_field_chain(builder, expr, env, type_registry)?;
-            let nested_struct_name = field_info.struct_type_name
-                .ok_or_else(|| anyhow::anyhow!("field '{}' is not a struct type", field_info.name))?;
-                
+            let nested_struct_name = field_info.struct_type_name.ok_or_else(|| {
+                anyhow::anyhow!("field '{}' is not a struct type", field_info.name)
+            })?;
+
             // Since struct fields store a pointer to the nested struct, we need to load it.
-            let inner_ptr = builder.ins().load(types::I64, MemFlags::new(), field_ptr, 0);
+            let inner_ptr = builder
+                .ins()
+                .load(types::I64, MemFlags::new(), field_ptr, 0);
             Ok((inner_ptr, nested_struct_name))
         }
-        _ => Err(anyhow::anyhow!("Expected identifier or field access in object position, got {:?}", expr)),
+        _ => Err(anyhow::anyhow!(
+            "Expected identifier or field access in object position, got {:?}",
+            expr
+        )),
     }
 }
 
@@ -569,7 +647,15 @@ fn compile_field_assign(
     type_registry: &TypeRegistry,
 ) -> anyhow::Result<()> {
     let (field_ptr, field_info) = resolve_field_chain(builder, lhs, env, type_registry)?;
-    let val = compile_expr(builder, module, rhs, functions, data_objects, env, type_registry)?;
+    let val = compile_expr(
+        builder,
+        module,
+        rhs,
+        functions,
+        data_objects,
+        env,
+        type_registry,
+    )?;
     builder.ins().store(MemFlags::new(), val, field_ptr, 0);
     Ok(())
 }
@@ -599,12 +685,21 @@ fn compile_expr(
             Ok(builder.ins().iconst(types::I64, if *value { 1 } else { 0 }))
         }
         Expr::Ident(id) => {
-            let var_info = env.resolve(&id.name)
+            let var_info = env
+                .resolve(&id.name)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             Ok(builder.use_var(var_info.variable))
         }
         Expr::Cast { expr, ty, .. } => {
-            let val = compile_expr(builder, module, expr, functions, data_objects, env, type_registry)?;
+            let val = compile_expr(
+                builder,
+                module,
+                expr,
+                functions,
+                data_objects,
+                env,
+                type_registry,
+            )?;
             let to_type_name = ty.as_name().unwrap_or("i64");
             let from_type = builder.func.dfg.value_type(val);
             if to_type_name == "i32" && from_type == types::I64 {
@@ -616,8 +711,24 @@ fn compile_expr(
             }
         }
         Expr::Binary { op, lhs, rhs, .. } => {
-            let lhs_val = compile_expr(builder, module, lhs, functions, data_objects, env, type_registry)?;
-            let rhs_val = compile_expr(builder, module, rhs, functions, data_objects, env, type_registry)?;
+            let lhs_val = compile_expr(
+                builder,
+                module,
+                lhs,
+                functions,
+                data_objects,
+                env,
+                type_registry,
+            )?;
+            let rhs_val = compile_expr(
+                builder,
+                module,
+                rhs,
+                functions,
+                data_objects,
+                env,
+                type_registry,
+            )?;
             use mantis_parser::ast::BinOp;
             match op {
                 BinOp::Add => Ok(builder.ins().iadd(lhs_val, rhs_val)),
@@ -749,13 +860,15 @@ fn compile_expr(
                         return Err(anyhow::anyhow!("Expected type ident for #init"));
                     };
 
-                    let layout = type_registry.get_struct(type_name)
+                    let layout = type_registry
+                        .get_struct(type_name)
                         .ok_or_else(|| anyhow::anyhow!("Unknown struct type '{}'", type_name))?;
 
-                    let malloc_id = functions.get("malloc")
+                    let malloc_id = functions
+                        .get("malloc")
                         .ok_or_else(|| anyhow::anyhow!("malloc missing"))?;
                     let local_malloc = module.declare_func_in_func(*malloc_id, builder.func);
-                    
+
                     let size_val = builder.ins().iconst(types::I64, layout.total_size as i64);
                     let call = builder.ins().call(local_malloc, &[size_val]);
                     return Ok(builder.inst_results(call)[0]);
@@ -769,9 +882,11 @@ fn compile_expr(
         // Allocates a stack slot of the struct's total size, stores each
         // field value at its computed offset, and returns a pointer (i64).
         Expr::StructInit { ty, fields, .. } => {
-            let type_name = ty.as_name()
-                .ok_or_else(|| anyhow::anyhow!("Struct init requires a named type, got {:?}", ty))?;
-            let layout = type_registry.get_struct(type_name)
+            let type_name = ty.as_name().ok_or_else(|| {
+                anyhow::anyhow!("Struct init requires a named type, got {:?}", ty)
+            })?;
+            let layout = type_registry
+                .get_struct(type_name)
                 .ok_or_else(|| anyhow::anyhow!("Unknown struct type '{}'", type_name))?
                 .clone();
 
@@ -786,13 +901,17 @@ fn compile_expr(
             // Store each field at its offset.
             for field_init in fields {
                 let field_name = &field_init.name.name;
-                let field_info = layout.get_field(field_name)
-                    .ok_or_else(|| anyhow::anyhow!(
-                        "struct '{}' has no field '{}'", type_name, field_name
-                    ))?;
+                let field_info = layout.get_field(field_name).ok_or_else(|| {
+                    anyhow::anyhow!("struct '{}' has no field '{}'", type_name, field_name)
+                })?;
                 let val = compile_expr(
-                    builder, module, &field_init.value,
-                    functions, data_objects, env, type_registry,
+                    builder,
+                    module,
+                    &field_init.value,
+                    functions,
+                    data_objects,
+                    env,
+                    type_registry,
                 )?;
                 let field_ptr = builder.ins().iadd_imm(base_ptr, field_info.offset as i64);
                 builder.ins().store(MemFlags::new(), val, field_ptr, 0);
@@ -808,10 +927,14 @@ fn compile_expr(
 
             // If the field is itself a struct, load the inner struct pointer.
             if field_info.struct_type_name.is_some() {
-                Ok(builder.ins().load(types::I64, MemFlags::new(), field_ptr, 0))
+                Ok(builder
+                    .ins()
+                    .load(types::I64, MemFlags::new(), field_ptr, 0))
             } else {
                 // Load the primitive value from memory.
-                let val = builder.ins().load(field_info.cl_type, MemFlags::new(), field_ptr, 0);
+                let val = builder
+                    .ins()
+                    .load(field_info.cl_type, MemFlags::new(), field_ptr, 0);
                 // If the field type is smaller than I64, extend it so the rest of
                 // the compiler (which treats everything as I64) works uniformly.
                 if field_info.cl_type.bits() < 64 {
@@ -824,10 +947,19 @@ fn compile_expr(
 
         // ── Unary operations ─────────────────────────────────────────────
         Expr::Unary { op, operand, .. } => {
-            let val = compile_expr(builder, module, operand, functions, data_objects, env, type_registry)?;
+            let val = compile_expr(
+                builder,
+                module,
+                operand,
+                functions,
+                data_objects,
+                env,
+                type_registry,
+            )?;
             use mantis_parser::ast::UnaryOp;
             match op {
                 UnaryOp::Neg => Ok(builder.ins().ineg(val)),
+                UnaryOp::Not => Ok(builder.ins().bnot(val)),
                 UnaryOp::Deref => {
                     // Dereference a pointer: load the i64 at the address.
                     Ok(builder.ins().load(types::I64, MemFlags::new(), val, 0))
@@ -842,8 +974,24 @@ fn compile_expr(
 
         // ── Pointer assignment ───────────────────────────────────────────
         Expr::PointerAssign { target, value, .. } => {
-            let ptr = compile_expr(builder, module, target, functions, data_objects, env, type_registry)?;
-            let val = compile_expr(builder, module, value, functions, data_objects, env, type_registry)?;
+            let ptr = compile_expr(
+                builder,
+                module,
+                target,
+                functions,
+                data_objects,
+                env,
+                type_registry,
+            )?;
+            let val = compile_expr(
+                builder,
+                module,
+                value,
+                functions,
+                data_objects,
+                env,
+                type_registry,
+            )?;
             builder.ins().store(MemFlags::new(), val, ptr, 0);
             Ok(val)
         }

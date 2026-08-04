@@ -1,7 +1,7 @@
+use super::functions::{MsDeclaredFunction, MsFunctionRegistry};
+use super::types::{MsTypeId, MsTypeWithId};
 use std::collections::HashMap;
 use std::rc::Rc;
-use super::types::{MsTypeWithId, MsTypeId};
-use super::functions::{MsDeclaredFunction, MsFunctionRegistry};
 
 #[derive(Clone, Debug)]
 pub struct MsTraitMethod {

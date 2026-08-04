@@ -127,6 +127,34 @@ impl MsModule {
                         }
                     }
                 }
+                if let Type::Nested(root, method) = &**base {
+                    if let (Some(root_name), Some(method_name)) = (root.as_name(), method.as_name())
+                    {
+                        let matching_template = self
+                            .trait_generic_templates
+                            .registry
+                            .get(root_name)
+                            .and_then(|templates| {
+                                templates
+                                    .iter()
+                                    .find(|t| {
+                                        t.decl.name.as_ref().and_then(|n| n.as_name())
+                                            == Some(method_name)
+                                    })
+                                    .cloned()
+                            });
+
+                        if let Some(template) = matching_template {
+                            let real_types = generics
+                                .iter()
+                                .map(|x| self.resolve(x))
+                                .collect::<Option<Vec<_>>>()?;
+                            return Some(MsResolved::GenericFunctionInstantiation(
+                                template, real_types,
+                            ));
+                        }
+                    }
+                }
                 {
                     let generic_key = format!("{:?}", type_name);
                     if let Some(ty) = self.type_registry.get_from_str(&generic_key) {
@@ -137,14 +165,15 @@ impl MsModule {
                     }
                 }
                 {
-                    let key = base.as_name().unwrap_or_default().to_string();
+                    let key = type_name.as_name().unwrap_or_default().to_string();
+
                     if let Some(template) = self.type_templates.registry.get(key.as_str()).cloned()
                     {
                         log::info!("found template {}, generating struct", key);
                         let mut real_types = HashMap::<Box<str>, MsTypeWithId>::new();
 
                         for (generic_name, ty) in template.generics.iter().zip(generics.iter()) {
-                            if let Some(MsResolved::Type(real_ty)) = self.resolve(ty) {
+                            if let Some(real_ty) = self.resolve(ty).and_then(|r| r.ty()) {
                                 real_types.insert(generic_name.as_ref().into(), real_ty);
                             }
                         }
@@ -203,25 +232,48 @@ impl MsModule {
             Type::Nested(root, child) => {
                 if let Some(MsResolved::Type(ty)) = self.resolve(root) {
                     match &ty.ty {
-                        MsType::Enum(enum_ty) => {
+                        MsType::Enum(_) => {
                             let variant_name = child.as_name()?;
                             return Some(MsResolved::EnumUnwrap(ty, variant_name.into()));
                         }
                         _ => {}
                     }
-                    let func = self
-                        .type_fn_registry
-                        .map
-                        .get(&ty.id)?
-                        .registry
-                        .get(child.as_name()?)?;
-                    return Some(MsResolved::Function(func.clone()));
+                    if let Some(reg) = self.type_fn_registry.map.get(&ty.id) {
+                        if let Some(func) = reg.registry.get(child.as_name()?) {
+                            return Some(MsResolved::Function(func.clone()));
+                        }
+                    }
                 }
 
                 let key = root.as_name().unwrap_or_default().to_string();
 
-                let module = self.submodules.get_mut(key.as_str())?;
-                return module.resolve(child);
+                if let Some(template) = self.type_templates.registry.get(key.as_str()).cloned() {
+                    if let crate::registries::types::MsGenericTemplateInner::Enum(ref enum_gen) =
+                        template.inner_type
+                    {
+                        let variant_name = child.as_name()?;
+                        if enum_gen.map.contains_key(variant_name) {
+                            let mut real_types = HashMap::new();
+                            for gen_name in &template.generics {
+                                let gen_key = TypeNameWithGenerics::new(gen_name.clone(), vec![]);
+                                if let Some(aliased) = self.aliased_types.get(&gen_key) {
+                                    real_types.insert(gen_name.clone(), aliased.clone());
+                                } else if let Some(dummy_ty) =
+                                    self.type_registry.get_from_str("i64")
+                                {
+                                    real_types.insert(gen_name.clone(), dummy_ty);
+                                }
+                            }
+                            let enum_ty = template.generate(&real_types, self);
+                            return Some(MsResolved::EnumUnwrap(enum_ty, variant_name.into()));
+                        }
+                    }
+                }
+
+                if let Some(module) = self.submodules.get_mut(key.as_str()) {
+                    return module.resolve(child);
+                }
+                None
             }
 
             Type::Ref(ty, is_mutable) => {
@@ -304,6 +356,44 @@ impl MsModule {
 pub enum ModuleEntry {
     Module(String),
     Dir(PathBuf),
+}
+
+pub fn resolve_module_by_path(
+    include_dirs: &[String],
+    path: &[mantis_parser::ast::Ident],
+) -> Option<ModuleEntry> {
+    if path.is_empty() {
+        return None;
+    }
+    let subpath = path
+        .iter()
+        .map(|i| i.name.as_str())
+        .collect::<Vec<_>>()
+        .join("/");
+    for dir_path in include_dirs {
+        let base = std::path::Path::new(dir_path).join(&subpath);
+        let file_cand = base.with_extension("ms");
+        if file_cand.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&file_cand) {
+                return Some(ModuleEntry::Module(content));
+            }
+        }
+        if base.is_dir() {
+            for sub in &["mod.ms", "lib.ms", "main.ms"] {
+                let p = base.join(sub);
+                if p.is_file() {
+                    if let Ok(content) = std::fs::read_to_string(&p) {
+                        return Some(ModuleEntry::Module(content));
+                    }
+                }
+            }
+            return Some(ModuleEntry::Dir(base));
+        }
+    }
+    if let Some(first) = path.first() {
+        return resolve_module_by_word(include_dirs, &first.name);
+    }
+    None
 }
 
 pub fn resolve_module_by_word(include_dirs: &[String], module_name: &str) -> Option<ModuleEntry> {

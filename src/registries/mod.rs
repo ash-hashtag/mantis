@@ -32,12 +32,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-    use linear_map::LinearMap;
+    use super::functions::{FunctionType, MsDeclaredFunction, MsFunctionRegistry};
+    use super::traits::{MsTrait, MsTraitMethod, MsTraitRegistry};
+    use super::types::{MsNativeType, MsType, MsTypeId, MsTypeMethodRegistry, MsTypeNameRegistry};
     use cranelift_module::FuncId;
-    use super::types::{MsTypeNameRegistry, MsType, MsNativeType, MsTypeMethodRegistry, MsTypeId};
-    use super::traits::{MsTraitRegistry, MsTrait, MsTraitMethod};
-    use super::functions::{MsFunctionRegistry, MsDeclaredFunction, FunctionType};
+    use linear_map::LinearMap;
+    use std::rc::Rc;
 
     fn mock_function(id: u32) -> Rc<MsDeclaredFunction> {
         Rc::new(MsDeclaredFunction {
@@ -51,7 +51,9 @@ mod tests {
     #[test]
     fn test_type_registry_resolver() {
         let mut registry = MsTypeNameRegistry::with_default_types();
-        let i32_ty = registry.get_from_str("i32").expect("i32 should be in default types");
+        let i32_ty = registry
+            .get_from_str("i32")
+            .expect("i32 should be in default types");
         assert_eq!(i32_ty.ty, MsType::Native(MsNativeType::I32));
     }
 
@@ -59,13 +61,16 @@ mod tests {
     fn test_trait_registry() {
         let mut trait_registry = MsTraitRegistry::default();
         let trait_name: Box<str> = "Display".into();
-        
+
         let mut methods = std::collections::HashMap::new();
-        methods.insert("fmt".into(), MsTraitMethod {
-            name: "fmt".into(),
-            args: vec![],
-            ret: None,
-        });
+        methods.insert(
+            "fmt".into(),
+            MsTraitMethod {
+                name: "fmt".into(),
+                args: vec![],
+                ret: None,
+            },
+        );
 
         let ms_trait = MsTrait {
             name: trait_name.clone(),
@@ -84,9 +89,9 @@ mod tests {
         let mut method_registry = MsTypeMethodRegistry::default();
         let type_id = MsTypeId(1); // Mock TypeId
         let func = mock_function(100);
-        
+
         method_registry.add_method(type_id, "hello", func.clone());
-        
+
         let resolved_func = method_registry.get_method(type_id, "hello").unwrap();
         assert_eq!(resolved_func.func_id, func.func_id);
     }
@@ -96,14 +101,16 @@ mod tests {
         let mut trait_registry = MsTraitRegistry::default();
         let type_id = MsTypeId(1);
         let trait_name: Box<str> = "Display".into();
-        
+
         let mut fn_registry = MsFunctionRegistry::default();
         let func = mock_function(200);
         fn_registry.add_function("fmt", func.clone());
 
         trait_registry.add_implementation(type_id, trait_name.clone(), fn_registry);
 
-        let impl_func = trait_registry.find_method_implementation(type_id, "Display", "fmt").unwrap();
+        let impl_func = trait_registry
+            .find_method_implementation(type_id, "Display", "fmt")
+            .unwrap();
         assert_eq!(impl_func.func_id, func.func_id);
     }
 }

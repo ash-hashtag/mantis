@@ -16,7 +16,7 @@ use crate::{
     ms::MsContext,
     registries::{
         functions::{FunctionType, MsDeclaredFunction, MsFunctionRegistry, MsGenericFunction},
-        modules::{resolve_module_by_word, MsResolved},
+        modules::{resolve_module_by_path, resolve_module_by_word, MsResolved},
         structs::{MsEnumType, MsStructType},
         types::{
             EnumWithGenerics, MsGenericTemplate, MsGenericTemplateInner, MsType, MsTypeRegistry,
@@ -110,11 +110,133 @@ pub fn compile_binary(
             .insert("pointer".into(), Rc::new(template));
     }
 
+    let include_dirs = if include_dirs.is_empty() {
+        vec![".".to_string(), "std".to_string()]
+    } else {
+        include_dirs
+    };
+
+    let mut declarations = Vec::new();
+    let mut visited = std::collections::HashSet::new();
+
+    fn expand_declarations(
+        decls: Vec<Declaration>,
+        include_dirs: &[String],
+        target: &mut Vec<Declaration>,
+        visited: &mut std::collections::HashSet<String>,
+    ) {
+        for decl in decls {
+            match decl {
+                Declaration::Import(ref import_decl) => {
+                    let mod_key = import_decl
+                        .path
+                        .iter()
+                        .map(|i| i.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(".");
+                    if !mod_key.is_empty() && visited.insert(mod_key.clone()) {
+                        if let Some(entry) = resolve_module_by_path(include_dirs, &import_decl.path)
+                        {
+                            let content = match entry {
+                                crate::registries::modules::ModuleEntry::Module(c) => c,
+                                crate::registries::modules::ModuleEntry::Dir(p) => {
+                                    let candidates = [
+                                        p.with_extension("ms"),
+                                        p.join("mod.ms"),
+                                        p.join("lib.ms"),
+                                    ];
+                                    let mut found_c = String::new();
+                                    for cand in &candidates {
+                                        if let Ok(c) = std::fs::read_to_string(cand) {
+                                            found_c = c;
+                                            break;
+                                        }
+                                    }
+                                    found_c
+                                }
+                            };
+                            match mantis_parser::parse(&content) {
+                                Ok(parsed) => {
+                                    expand_declarations(
+                                        parsed.declarations,
+                                        include_dirs,
+                                        target,
+                                        visited,
+                                    );
+                                }
+                                Err(err) => {
+                                    panic!(
+                                        "Failed to parse module for Import {:?}: {:?}",
+                                        import_decl.path, err
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                Declaration::Use(ref use_decl) => {
+                    let mod_key = use_decl
+                        .path
+                        .iter()
+                        .map(|i| i.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(".");
+                    if !mod_key.is_empty() && visited.insert(mod_key.clone()) {
+                        if let Some(entry) = resolve_module_by_path(include_dirs, &use_decl.path) {
+                            let content = match entry {
+                                crate::registries::modules::ModuleEntry::Module(c) => c,
+                                crate::registries::modules::ModuleEntry::Dir(p) => {
+                                    let candidates = [
+                                        p.with_extension("ms"),
+                                        p.join("mod.ms"),
+                                        p.join("lib.ms"),
+                                    ];
+                                    let mut found_c = String::new();
+                                    for cand in &candidates {
+                                        if let Ok(c) = std::fs::read_to_string(cand) {
+                                            found_c = c;
+                                            break;
+                                        }
+                                    }
+                                    found_c
+                                }
+                            };
+                            match mantis_parser::parse(&content) {
+                                Ok(parsed) => {
+                                    expand_declarations(
+                                        parsed.declarations,
+                                        include_dirs,
+                                        target,
+                                        visited,
+                                    );
+                                }
+                                Err(err) => {
+                                    panic!(
+                                        "Failed to parse module for Use {:?}: {:?}",
+                                        use_decl.path, err
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                other => target.push(other),
+            }
+        }
+    }
+
+    expand_declarations(
+        program.declarations,
+        &include_dirs,
+        &mut declarations,
+        &mut visited,
+    );
+
     // Register implicit 'malloc' and 'memcpy' if not already declared in source
     {
         use mantis_parser::ast::Declaration;
         let has_decl = |name: &str| {
-            program.declarations.iter().any(|d| match d {
+            declarations.iter().any(|d| match d {
                 Declaration::Function(f) => f.name.as_ref().and_then(|n| n.as_name()) == Some(name),
                 _ => false,
             })
@@ -249,80 +371,28 @@ pub fn compile_binary(
                 }),
             );
         }
+
+        if !has_decl("exit") {
+            let mut exit_sig = module.make_signature();
+            exit_sig.params.push(AbiParam::new(types::I32).sext());
+            let exit_id = module
+                .declare_function("exit", Linkage::Import, &exit_sig)
+                .unwrap();
+            ms_ctx.current_module.fn_registry.add_function(
+                "exit",
+                Rc::new(MsDeclaredFunction {
+                    func_id: exit_id,
+                    arguments: Default::default(),
+                    rets: None,
+                    fn_type: FunctionType::Extern,
+                }),
+            );
+        }
     }
 
-    for declaration in program.declarations {
+    // Pass 1: Process all TypeDefs and Traits
+    for declaration in &declarations {
         match declaration {
-            Declaration::Function(function_decl) => {
-                let mut auto_generics = Vec::new();
-                let mut function_decl = function_decl;
-                let mut was_explicit_generic = false;
-
-                if let Some(TypeExpr::Generic(_, _)) = &function_decl.name {
-                    was_explicit_generic = true;
-                } else if !function_decl.where_clause.is_empty() {
-                    was_explicit_generic = true;
-                }
-
-                if !function_decl.is_extern {
-                    for param in function_decl.params.iter_mut() {
-                        if matches!(param.ty, TypeExpr::Unknown) {
-                            let gen_name = format!("_{}", param.name.name);
-                            param.ty = TypeExpr::Named(mantis_parser::ast::Ident::new(
-                                &gen_name, param.span,
-                            ));
-                            auto_generics.push(gen_name.into_boxed_str());
-                        }
-                    }
-                }
-
-                if was_explicit_generic || !auto_generics.is_empty() {
-                    let (name, generics) =
-                        if let Some(TypeExpr::Generic(base, generics)) = &function_decl.name {
-                            let name = base
-                                .as_name()
-                                .expect("function name must be an identifier")
-                                .to_string();
-                            let generics = generics
-                                .iter()
-                                .map(|x| {
-                                    x.as_name()
-                                        .expect("generic param must be an identifier")
-                                        .into()
-                                })
-                                .collect::<Vec<Box<str>>>();
-                            (name, generics)
-                        } else {
-                            let name = function_decl
-                                .name
-                                .as_ref()
-                                .and_then(|n| n.as_name())
-                                .expect("function must have a name")
-                                .to_string();
-                            (name, auto_generics)
-                        };
-
-                    let template = MsGenericFunction {
-                        decl: Rc::new(function_decl),
-                        generics,
-                    };
-                    ms_ctx
-                        .current_module
-                        .fn_templates
-                        .registry
-                        .insert(name.into(), template);
-                } else {
-                    compile_function(
-                        function_decl,
-                        &mut module,
-                        &mut ctx,
-                        &mut fbx,
-                        &mut ms_ctx,
-                        None,
-                        None,
-                    );
-                }
-            }
             Declaration::TypeDef(typedef) => {
                 let name = &typedef.name;
                 match &typedef.definition {
@@ -417,16 +487,15 @@ pub fn compile_binary(
                                 let alias = ident.name.as_str();
                                 match &typedef.definition {
                                     TypeDefBody::Alias(target_ty) => {
-                                        if let Some(MsResolved::Type(resolved)) =
-                                            ms_ctx.current_module.resolve(target_ty)
+                                        if let Some(ty) = ms_ctx
+                                            .current_module
+                                            .resolve(target_ty)
+                                            .and_then(|r| r.ty())
                                         {
                                             ms_ctx
                                                 .current_module
                                                 .type_registry
-                                                .add_alias(alias, resolved.id);
-                                        } else {
-                                            log::warn!("found an undefined type, creating type");
-                                            todo!("add types to ms_context");
+                                                .add_alias(alias, ty.id);
                                         }
                                     }
                                     TypeDefBody::Struct(struct_def) => {
@@ -435,12 +504,41 @@ pub fn compile_binary(
                                             let ty = ms_ctx
                                                 .current_module
                                                 .resolve(&field.ty)
-                                                .expect(&format!(
-                                                    "unable to resolve field type {:?}",
-                                                    field.ty
-                                                ))
-                                                .ty()
-                                                .unwrap();
+                                                .and_then(|r| r.ty())
+                                                .unwrap_or_else(|| {
+                                                    if let TypeExpr::Ref(inner, is_mut) = &field.ty
+                                                    {
+                                                        let inner_ty = ms_ctx
+                                                            .current_module
+                                                            .resolve(inner)
+                                                            .and_then(|r| r.ty())
+                                                            .unwrap_or_else(|| {
+                                                                let void_ty = ms_ctx
+                                                                    .current_module
+                                                                    .type_registry
+                                                                    .get_from_str("void")
+                                                                    .unwrap();
+                                                                void_ty
+                                                            });
+                                                        let ref_ty = MsType::Ref(
+                                                            Box::new(inner_ty.ty),
+                                                            *is_mut,
+                                                        );
+                                                        let id = ms_ctx
+                                                            .current_module
+                                                            .type_registry
+                                                            .get_or_add_type(ref_ty.clone());
+                                                        crate::registries::types::MsTypeWithId {
+                                                            id,
+                                                            ty: ref_ty,
+                                                        }
+                                                    } else {
+                                                        panic!(
+                                                            "unable to resolve field type {:?}",
+                                                            field.ty
+                                                        );
+                                                    }
+                                                });
                                             ms_struct.add_field(field.name.name.as_str(), ty);
                                         }
                                         ms_ctx
@@ -475,13 +573,7 @@ pub fn compile_binary(
                             _ => todo!(),
                         }
                     }
-                };
-            }
-            Declaration::Use(_use_decl) => {
-                todo!("use decl should compile the modules");
-            }
-            Declaration::Import(_import_decl) => {
-                todo!("import decl should compile the modules");
+                }
             }
             Declaration::Trait(trait_def) => {
                 let trait_name = trait_def
@@ -496,7 +588,7 @@ pub fn compile_binary(
                     })
                     .expect("trait name should be an identifier or generic with identifier base");
 
-                let functions = trait_def.methods;
+                let functions = trait_def.methods.clone();
 
                 ms_ctx
                     .current_module
@@ -511,6 +603,115 @@ pub fn compile_binary(
 
                 log::info!("Added functions of trait {}", trait_name);
             }
+            _ => {}
+        }
+    }
+
+    // Pass 2: Pre-declare non-generic function signatures
+    for declaration in &declarations {
+        if let Declaration::Function(function_decl) = declaration {
+            let is_generic = function_decl
+                .name
+                .as_ref()
+                .map_or(false, |n| matches!(n, TypeExpr::Generic(_, _)))
+                || !function_decl.where_clause.is_empty()
+                || (!function_decl.is_extern
+                    && function_decl
+                        .params
+                        .iter()
+                        .any(|p| matches!(p.ty, TypeExpr::Unknown)));
+            if !is_generic {
+                let mut proto = function_decl.clone();
+                proto.body = None;
+                compile_function(
+                    proto,
+                    &mut module,
+                    &mut ctx,
+                    &mut fbx,
+                    &mut ms_ctx,
+                    None,
+                    None,
+                );
+            }
+        }
+    }
+
+    // Pass 3: Process function definitions and impl blocks
+    for declaration in declarations {
+        match declaration {
+            Declaration::Function(function_decl) => {
+                let mut auto_generics = Vec::new();
+                let mut function_decl = function_decl;
+                let mut was_explicit_generic = false;
+
+                if let Some(TypeExpr::Generic(_, _)) = &function_decl.name {
+                    was_explicit_generic = true;
+                } else if !function_decl.where_clause.is_empty() {
+                    was_explicit_generic = true;
+                }
+
+                if !function_decl.is_extern {
+                    for param in function_decl.params.iter_mut() {
+                        if matches!(param.ty, TypeExpr::Unknown) {
+                            let gen_name = format!("_{}", param.name.name);
+                            param.ty = TypeExpr::Named(mantis_parser::ast::Ident::new(
+                                &gen_name, param.span,
+                            ));
+                            auto_generics.push(gen_name.into_boxed_str());
+                        }
+                    }
+                }
+
+                if was_explicit_generic || !auto_generics.is_empty() {
+                    let (name, generics) =
+                        if let Some(TypeExpr::Generic(base, generics)) = &function_decl.name {
+                            let name = base
+                                .as_name()
+                                .expect("function name must be an identifier")
+                                .to_string();
+                            let generics = generics
+                                .iter()
+                                .map(|x| {
+                                    x.as_name()
+                                        .expect("generic param must be an identifier")
+                                        .into()
+                                })
+                                .collect::<Vec<Box<str>>>();
+                            (name, generics)
+                        } else {
+                            let name = function_decl
+                                .name
+                                .as_ref()
+                                .and_then(|n| n.as_name())
+                                .expect("function must have a name")
+                                .to_string();
+                            (name, auto_generics)
+                        };
+
+                    let template = MsGenericFunction {
+                        decl: Rc::new(function_decl),
+                        generics,
+                    };
+                    ms_ctx
+                        .current_module
+                        .fn_templates
+                        .registry
+                        .insert(name.into(), template);
+                } else {
+                    compile_function(
+                        function_decl,
+                        &mut module,
+                        &mut ctx,
+                        &mut fbx,
+                        &mut ms_ctx,
+                        None,
+                        None,
+                    );
+                }
+            }
+            Declaration::TypeDef(_) => {}
+            Declaration::Use(_) | Declaration::Import(_) => {}
+            Declaration::Trait(_) => {}
             Declaration::Impl(impl_block) => {
                 if impl_block.generics.is_empty() {
                     let for_type = if let Some(ref for_ty) = impl_block.for_type {
@@ -549,7 +750,20 @@ pub fn compile_binary(
                         None
                     };
 
-                    for function in impl_block.methods {
+                    let for_type_node = impl_block
+                        .for_type
+                        .as_ref()
+                        .unwrap_or(&impl_block.trait_name);
+
+                    for mut function in impl_block.methods {
+                        for param in function.params.iter_mut() {
+                            if param.name.name.as_str() == "self"
+                                && matches!(param.ty, TypeExpr::Unknown)
+                            {
+                                param.ty = for_type_node.clone();
+                            }
+                        }
+
                         let method_for = MethodFor {
                             trait_name,
                             on_type: &for_type,
@@ -573,7 +787,20 @@ pub fn compile_binary(
                         .map(|g| g.name.clone().into_boxed_str())
                         .collect();
 
-                    for function in impl_block.methods {
+                    let for_type_node = impl_block
+                        .for_type
+                        .as_ref()
+                        .unwrap_or(&impl_block.trait_name);
+
+                    for mut function in impl_block.methods {
+                        for param in function.params.iter_mut() {
+                            if param.name.name.as_str() == "self"
+                                && matches!(param.ty, TypeExpr::Unknown)
+                            {
+                                param.ty = for_type_node.clone();
+                            }
+                        }
+
                         let name_expr = function.name.as_ref().unwrap();
                         let name = name_expr
                             .as_name()
@@ -657,7 +884,7 @@ pub fn compile_binary(
     let object_product = module.finish();
 
     let bytes = object_product.emit()?;
-
+    println!("Finished compile_binary, wrote {} bytes", bytes.len());
     Ok(bytes)
 }
 
@@ -672,6 +899,6 @@ pub fn compile_main_fn(
     ctx.func.signature.returns.push(AbiParam::new(types::I32)); // exit code
 
     let func_id = module
-        .declare_function("main", Linkage::Preemptible, &ctx.func.signature)
+        .declare_function("main", Linkage::Export, &ctx.func.signature)
         .unwrap();
 }

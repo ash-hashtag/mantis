@@ -61,6 +61,7 @@ pub struct FnDecl {
     pub where_clause: Vec<WhereBound>,
     pub body: Option<Block>,
     pub is_extern: bool,
+    pub is_async: bool,
     pub trailing_params: Option<Vec<Param>>,
     pub span: Span,
 }
@@ -160,6 +161,7 @@ impl TypeExpr {
     pub fn as_name(&self) -> Option<&str> {
         match self {
             TypeExpr::Named(id) => Some(&id.name),
+            TypeExpr::Generic(base, _) => base.as_name(),
             _ => None,
         }
     }
@@ -309,6 +311,12 @@ pub enum Expr {
         field: Ident,
         span: Span,
     },
+    /// Await expression: `await expr` or `expr.await`
+    Await { expr: Box<Expr>, span: Span },
+    /// Yield expression: `yield expr`
+    Yield { expr: Box<Expr>, span: Span },
+    /// Async block: `async { ... }`
+    AsyncBlock { body: Block, span: Span },
     /// Type cast: `x as i64`
     Cast {
         expr: Box<Expr>,
@@ -368,6 +376,9 @@ impl Expr {
             | Expr::CompilerCall { span, .. }
             | Expr::PointerAssign { span, .. }
             | Expr::Propagate { span, .. }
+            | Expr::Await { span, .. }
+            | Expr::Yield { span, .. }
+            | Expr::AsyncBlock { span, .. }
             | Expr::Generic { span, .. } => *span,
             Expr::Ident(id) => id.span,
             Expr::TypeExpr(ty) => ty.span(),
@@ -408,6 +419,7 @@ pub enum BinOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
     Neg,    // -x
+    Not,    // !x
     Deref,  // *x
     AddrOf, // @x
 }

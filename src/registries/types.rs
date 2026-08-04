@@ -8,7 +8,9 @@ use std::{
 use codegen::ir::{condcodes, Inst};
 use cranelift::prelude::*;
 use linear_map::LinearMap;
-use mantis_parser::ast::{self, BinOp as BinaryOperation, FnDecl as FunctionDecl, TypeExpr};
+use mantis_parser::ast::{
+    self, BinOp as BinaryOperation, FnDecl as FunctionDecl, TypeExpr, TypeExpr as MsTokenType,
+};
 
 use crate::{
     backend::compile_function::random_string,
@@ -465,6 +467,21 @@ impl TypeNameWithGenerics {
             }
             _ => None,
         }
+    }
+
+    pub fn to_type_expr(&self) -> MsTokenType {
+        let mut base = MsTokenType::Named(mantis_parser::ast::Ident::new(
+            &*self.name,
+            mantis_parser::token::Span::new(0, 0),
+        ));
+        if !self.generics.is_empty() {
+            let params = self.generics.iter().map(|g| g.to_type_expr()).collect();
+            base = MsTokenType::Generic(Box::new(base), params);
+        }
+        for &is_mut in &self.refs {
+            base = MsTokenType::Ref(Box::new(base), is_mut);
+        }
+        base
     }
 }
 

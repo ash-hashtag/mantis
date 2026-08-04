@@ -66,7 +66,6 @@ impl MsFunctionRegistry {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct MsGenericFunction {
     pub decl: Rc<FunctionDecl>,

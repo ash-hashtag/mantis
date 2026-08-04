@@ -94,6 +94,12 @@ pub enum Token {
     Use,
     #[token("where")]
     Where,
+    #[token("async")]
+    Async,
+    #[token("await")]
+    Await,
+    #[token("yield")]
+    Yield,
 
     // ── Literals ──────────────────────────────────────────────
     #[token("true", |_| true)]
@@ -144,6 +150,8 @@ pub enum Token {
     EqEq,
     #[token("!=")]
     NotEq,
+    #[token("!")]
+    Bang,
     #[token(">=")]
     GtEq,
     #[token("<=")]

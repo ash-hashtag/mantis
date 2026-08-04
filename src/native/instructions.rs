@@ -56,10 +56,18 @@ impl NodeResult {
         }
     }
 
-    pub fn address(&self, fbx: &mut FunctionBuilder, _ms_ctx: &crate::ms::MsContext) -> Value {
+    pub fn address(&self, fbx: &mut FunctionBuilder, ms_ctx: &crate::ms::MsContext) -> Value {
         match self {
             NodeResult::Var(var) => {
-                if let Some(ss) = var.stack_slot {
+                let ty = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_from_type_id(var.ty_id);
+                if var.is_reference
+                    || matches!(ty, Some(crate::registries::types::MsType::Ref(_, _)))
+                {
+                    var.value(fbx, ms_ctx)
+                } else if let Some(ss) = var.stack_slot {
                     fbx.ins().stack_addr(types::I64, ss, 0)
                 } else {
                     fbx.use_var(var.c_var)

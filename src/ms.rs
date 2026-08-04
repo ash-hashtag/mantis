@@ -6,7 +6,7 @@ use cranelift_object::ObjectModule;
 
 use crate::{
     registries::{
-        functions::{MsFunctionRegistry, MsFunctionTemplates, MsTraitTemplates, MsInstantiation},
+        functions::{MsFunctionRegistry, MsFunctionTemplates, MsInstantiation, MsTraitTemplates},
         modules::{MsModule, MsModuleRegistry},
         traits::MsTraitRegistry,
         types::{MsTypeRegistry, MsTypeTemplates},

@@ -15,7 +15,7 @@ use cranelift_object::ObjectModule;
 use linear_map::LinearMap;
 
 use crate::{
-    backend::compile_function::compile_assignment_on_pointers,
+    backend::compile_function::{compile_assignment_on_pointers, compile_cast},
     ms::MsContext,
     native::instructions::{Either, NodeResult},
 };
@@ -180,12 +180,23 @@ impl MsStructType {
             .unwrap()
         {
             MsType::Native(nty) => {
-                fbx.ins().store(
-                    MemFlags::new(),
-                    value.value(),
-                    ptr.value(),
-                    field.offset as i32,
-                );
+                let cl_ty = nty.to_cl_type().unwrap();
+                let val_ty = fbx.func.dfg.value_type(value.value());
+                let val = if val_ty != cl_ty {
+                    if val_ty.is_int() && cl_ty.is_int() {
+                        if val_ty.bits() > cl_ty.bits() {
+                            fbx.ins().ireduce(cl_ty, value.value())
+                        } else {
+                            fbx.ins().uextend(cl_ty, value.value())
+                        }
+                    } else {
+                        value.value()
+                    }
+                } else {
+                    value.value()
+                };
+                fbx.ins()
+                    .store(MemFlags::new(), val, ptr.value(), field.offset as i32);
             }
             MsType::Struct(struct_ty) => {
                 let dest = fbx.ins().iadd_imm(ptr.value(), field.offset as i64);
@@ -269,6 +280,10 @@ pub struct MsEnumType {
 }
 
 impl MsEnumType {
+    pub fn variants(&self) -> &LinearMap<Box<str>, Option<MsTypeWithId>> {
+        &self.variants
+    }
+
     pub fn max_variant_size(&self) -> usize {
         self.max_variant_size
     }
@@ -318,8 +333,19 @@ impl MsEnumType {
                 }
 
                 if let Some(value) = value {
-                    let arg = variant_arg.unwrap();
-                    assert!(arg.ty() == value.id);
+                    let mut arg = variant_arg.unwrap();
+                    if arg.ty() != value.id {
+                        let target_ty = ms_ctx
+                            .current_module
+                            .type_registry
+                            .get_from_type_id(value.id)
+                            .unwrap();
+                        let cast_to = MsTypeWithId {
+                            id: value.id,
+                            ty: target_ty,
+                        };
+                        arg = compile_cast(arg, cast_to, module, fbx, ms_ctx);
+                    }
                     let variant_ptr = fbx.ins().iadd_imm(self_ptr, 8);
                     let ty = ms_ctx
                         .current_module

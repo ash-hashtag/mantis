@@ -109,22 +109,13 @@ impl VarInfo {
 #[derive(Debug)]
 pub enum ScopeError {
     /// Variable was not found in any enclosing scope.
-    Undeclared {
-        name: String,
-    },
+    Undeclared { name: String },
     /// An assignment targeted an immutable binding.
-    AssignToImmutable {
-        name: String,
-    },
+    AssignToImmutable { name: String },
     /// A variable with the same name already exists in the *current* scope.
-    AlreadyDeclared {
-        name: String,
-        depth: usize,
-    },
+    AlreadyDeclared { name: String, depth: usize },
     /// A break/continue was used outside of a loop.
-    NotInLoop {
-        kind: &'static str,
-    },
+    NotInLoop { kind: &'static str },
 }
 
 impl fmt::Display for ScopeError {
