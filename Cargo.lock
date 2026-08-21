@@ -625,6 +625,7 @@ dependencies = [
  "log",
  "mantis_codegen",
  "mantis_parser",
+ "mantis_syntax",
 ]
 
 [[package]]
@@ -646,11 +647,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "mantis_lsp"
+version = "0.1.0"
+dependencies = [
+ "mantis_parser",
+ "mantis_syntax",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mantis_parser"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "logos",
+]
+
+[[package]]
+name = "mantis_syntax"
+version = "0.1.0"
+dependencies = [
+ "mantis_parser",
 ]
 
 [[package]]

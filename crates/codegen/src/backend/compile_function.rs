@@ -1679,12 +1679,24 @@ pub fn compile_node(
         Expr::ArrayInit { elements, span: _ } => {
             return compile_array_init(elements, None, module, fbx, ms_ctx);
         }
-        Expr::Lambda { decl, span } => {
+        Expr::Lambda { captures, decl, span } => {
             let lambda_name = format!("_lambda_{}", random_string(8));
             let mut lambda_decl = *decl.clone();
             lambda_decl.name = Some(mantis_parser::ast::TypeExpr::Named(
                 mantis_parser::ast::Ident::new(&lambda_name, *span),
             ));
+
+            for cap in captures {
+                let exists = lambda_decl.params.iter().any(|p| p.name.name == cap.name.name);
+                if !exists {
+                    lambda_decl.params.push(mantis_parser::ast::Param {
+                        name: cap.name.clone(),
+                        mutable: cap.kind == mantis_parser::ast::CaptureKind::MutRef,
+                        ty: mantis_parser::ast::TypeExpr::Named(mantis_parser::ast::Ident::new("i64", cap.span)),
+                        span: cap.span,
+                    });
+                }
+            }
 
             let mut lambda_ctx = module.make_context();
             let mut lambda_fbx_ctx = cranelift::prelude::FunctionBuilderContext::new();

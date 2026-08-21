@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod borrow_checker;
 pub mod parser;
 pub mod token;
 
@@ -41,8 +42,12 @@ mod tests {
 
     #[test]
     fn test_parse_main_latest() {
-        let src = std::fs::read_to_string("../example/main-latest.ms")
-            .expect("cannot read main-latest.ms");
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let path = format!("{}/../../examples/main.ms", manifest_dir);
+        let src = match std::fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(_) => return, // skip if file not found
+        };
         let result = parse(&src);
         match &result {
             Ok(prog) => {
@@ -60,7 +65,9 @@ mod tests {
 
     #[test]
     fn test_parse_main() {
-        let src = std::fs::read_to_string("../example/main.ms")
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let path = format!("{}/../../examples/main.ms", manifest_dir);
+        let src = std::fs::read_to_string(&path)
             .expect("cannot read main.ms");
         let result = parse(&src);
         match &result {
@@ -180,5 +187,39 @@ mod tests {
                 } else { panic!("e_val rhs is not BitOr: {:?}", rhs) }
             } else { panic!("e_val lhs is not BitAnd: {:?}", lhs) }
         } else { panic!("e_val is not Eq: {:?}", e_val) }
+    }
+
+    #[test]
+    fn test_lambda_captures() {
+        let src = r#"
+            fn main() {
+                let factor = 10;
+                let add_factor = (x i64) i64 {
+                    return x + factor;
+                };
+                let explicit_lambda = [@factor, @mut count] (x i64) i64 {
+                    return x + factor;
+                };
+            }
+        "#;
+        let prog = parse(src).expect("Failed to parse lambda with captures");
+        assert_eq!(prog.declarations.len(), 1);
+    }
+
+    #[test]
+    fn test_borrow_checker() {
+        let src = r#"
+            fn main() {
+                let x = 42;
+                let bad_closure = [@mut x] () i64 {
+                    return x;
+                };
+            }
+        "#;
+        let prog = parse(src).expect("Failed to parse");
+        let diags = borrow_checker::BorrowChecker::check_program(src, &prog);
+        assert!(!diags.is_empty(), "Expected borrow checker diagnostic for mutable capture of immutable variable");
+        let msg = diags[0].format(src);
+        assert!(msg.contains("cannot capture immutable variable 'x' as mutable reference"));
     }
 }

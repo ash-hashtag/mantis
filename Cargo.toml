@@ -2,6 +2,8 @@
 members = [
     "crates/parser",
     "crates/codegen",
+    "crates/syntax",
+    "crates/lsp",
     "crates/cli",
     "crates/mat",
 ]
@@ -21,8 +23,11 @@ logos = "0.14.4"
 rand = "0.10.0"
 linear-map = "1.2.0"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 toml = "0.8"
 
 # Internal workspace crates
 mantis_parser = { path = "crates/parser" }
 mantis_codegen = { path = "crates/codegen" }
+mantis_syntax = { path = "crates/syntax" }
+mantis_lsp = { path = "crates/lsp" }

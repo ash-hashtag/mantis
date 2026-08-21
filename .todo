@@ -1,8 +1,0 @@
-[x] error reporting, keeping track of position of the syntax tree
-[x] differentiate enum and module nesting from regulare expressions
-[x] take care of enum expressions misinterpreting as function calls
-[x] references and traits
-[x] drop is broken
-[x] alias generics to real types when generating functions
-[x] enum unwrapping
-[x] standard library (Option, Result, Vec, String, Memory, IO) and multi-pass module resolution

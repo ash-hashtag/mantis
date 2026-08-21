@@ -1,0 +1,10 @@
+[package]
+name = "mantis_lsp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mantis_parser = { path = "../parser" }
+mantis_syntax = { path = "../syntax" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

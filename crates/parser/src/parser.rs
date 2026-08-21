@@ -980,7 +980,9 @@ impl Parser {
                 if matches!(self.peek(), Some(Token::Fn)) {
                     let fn_decl = self.parse_fn_decl()?;
                     let full_span = span.merge(fn_decl.span);
+                    let captures = infer_captures(&fn_decl);
                     Ok(Expr::Lambda {
+                        captures,
                         decl: Box::new(FnDecl {
                             is_async: true,
                             ..fn_decl
@@ -997,9 +999,6 @@ impl Parser {
                 }
             }
             Some(Token::Star) => {
-                // For now, * in prefix position is not used for deref anymore (moved to @)
-                // But could be used for something else later. For now, error or treat as Deref for backward compat if desired.
-                // Switching to error to enforce new syntax.
                 return Err(
                     self.error("expected expression, found '*' (use '@' for dereference)".into())
                 );
@@ -1011,7 +1010,9 @@ impl Parser {
                     let start = self.peek_span();
                     let decl = self.parse_lambda_decl_no_fn(start)?;
                     let span = decl.span;
+                    let captures = infer_captures(&decl);
                     return Ok(Expr::Lambda {
+                        captures,
                         decl: Box::new(decl),
                         span,
                     });
@@ -1022,14 +1023,45 @@ impl Parser {
                 Ok(inner)
             }
 
-            // Array init: [a, b, c]
-            Some(Token::LBracket) => self.parse_array_init(),
+            // Array init: [a, b, c] or Lambda with explicit captures: [a, @b] (x i32) i64 { ... }
+            Some(Token::LBracket) => {
+                if self.is_lambda_capture_start() {
+                    let start = self.peek_span();
+                    let explicit_caps = self.parse_captures()?;
+                    let decl = self.parse_lambda_decl_no_fn(start)?;
+                    let full_span = start.merge(decl.span);
+                    let captures = if explicit_caps.is_empty() {
+                        infer_captures(&decl)
+                    } else {
+                        explicit_caps
+                    };
+                    return Ok(Expr::Lambda {
+                        captures,
+                        decl: Box::new(decl),
+                        span: full_span,
+                    });
+                }
+                self.parse_array_init()
+            }
 
-            // Lambda: fn (params) ret { body }
+            // Lambda: fn (params) ret { body } or fn [captures] (params) ret { body }
             Some(Token::Fn) => {
-                let decl = self.parse_fn_decl()?;
+                let start = self.peek_span();
+                self.advance(); // consume fn
+                let explicit_caps = if matches!(self.peek(), Some(Token::LBracket)) {
+                    self.parse_captures()?
+                } else {
+                    Vec::new()
+                };
+                let decl = self.parse_lambda_decl_no_fn(start)?;
                 let span = decl.span;
+                let captures = if explicit_caps.is_empty() {
+                    infer_captures(&decl)
+                } else {
+                    explicit_caps
+                };
                 Ok(Expr::Lambda {
+                    captures,
                     decl: Box::new(decl),
                     span,
                 })
@@ -1339,6 +1371,71 @@ impl Parser {
         }
 
         false
+    }
+
+    fn is_lambda_capture_start(&self) -> bool {
+        if !matches!(self.peek(), Some(Token::LBracket)) {
+            return false;
+        }
+        let mut idx = 1;
+        let mut depth = 1;
+        while let Some(tok) = self.peek_nth(idx) {
+            match tok {
+                Token::LBracket => depth += 1,
+                Token::RBracket => {
+                    depth -= 1;
+                    if depth == 0 {
+                        if let Some(next) = self.peek_nth(idx + 1) {
+                            return matches!(next, Token::LParen | Token::Fn | Token::LBrace);
+                        }
+                        return false;
+                    }
+                }
+                _ => {}
+            }
+            idx += 1;
+        }
+        false
+    }
+
+    fn parse_captures(&mut self) -> PResult<Vec<CaptureItem>> {
+        let mut captures = Vec::new();
+        if matches!(self.peek(), Some(Token::LBracket)) {
+            self.advance();
+            while !matches!(self.peek(), Some(Token::RBracket)) && !self.at_end() {
+                let item_start = self.peek_span();
+                let kind = if matches!(self.peek(), Some(Token::At | Token::Amp)) {
+                    self.advance();
+                    if matches!(self.peek(), Some(Token::Mut)) {
+                        self.advance();
+                        CaptureKind::MutRef
+                    } else {
+                        CaptureKind::Ref
+                    }
+                } else if matches!(self.peek(), Some(Token::Mut)) {
+                    self.advance();
+                    CaptureKind::Value
+                } else {
+                    CaptureKind::Value
+                };
+
+                let name = self.expect_ident()?;
+                let item_span = item_start.merge(name.span);
+                captures.push(CaptureItem {
+                    name,
+                    kind,
+                    span: item_span,
+                });
+
+                if matches!(self.peek(), Some(Token::Comma)) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            self.expect(&Token::RBracket)?;
+        }
+        Ok(captures)
     }
 }
 

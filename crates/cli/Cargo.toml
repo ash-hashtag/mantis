@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 mantis_parser.workspace = true
 mantis_codegen.workspace = true
+mantis_syntax.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 log.workspace = true

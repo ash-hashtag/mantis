@@ -74,6 +74,20 @@ pub struct Param {
     pub span: Span,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaptureKind {
+    Value,
+    Ref,
+    MutRef,
+}
+
+#[derive(Debug, Clone)]
+pub struct CaptureItem {
+    pub name: Ident,
+    pub kind: CaptureKind,
+    pub span: Span,
+}
+
 // ── Type Definition ──────────────────────────────────────────────────────────
 
 /// `type Option[T] = enum { Some(T), None }`
@@ -331,8 +345,12 @@ pub enum Expr {
     },
     /// Array initialization: `[1, 2, 3]`
     ArrayInit { elements: Vec<Expr>, span: Span },
-    /// Lambda: `fn (x i32) i64 { return x as i64; }`
-    Lambda { decl: Box<FnDecl>, span: Span },
+    /// Lambda: `[a, @mut b] (x i32) i64 { return x as i64; }`
+    Lambda {
+        captures: Vec<CaptureItem>,
+        decl: Box<FnDecl>,
+        span: Span,
+    },
     /// Compiler intrinsic call: `#import("libc")`
     CompilerCall {
         name: String,
@@ -442,4 +460,182 @@ impl Ident {
             span,
         }
     }
+}
+
+pub fn infer_captures(decl: &FnDecl) -> Vec<CaptureItem> {
+    let mut params = std::collections::HashSet::new();
+    for p in &decl.params {
+        params.insert(p.name.name.clone());
+    }
+
+    let mut captured_map = std::collections::HashMap::<String, (Span, bool)>::new();
+    let mut locals = std::collections::HashSet::new();
+
+    if let Some(body) = &decl.body {
+        collect_vars_in_block(body, &params, &mut locals, &mut captured_map);
+    }
+
+    let mut captures = Vec::new();
+    for (name, (span, is_mutated)) in captured_map {
+        let kind = if is_mutated {
+            CaptureKind::MutRef
+        } else {
+            CaptureKind::Ref
+        };
+        captures.push(CaptureItem {
+            name: Ident::new(name, span),
+            kind,
+            span,
+        });
+    }
+
+    captures
+}
+
+fn collect_vars_in_block(
+    block: &Block,
+    params: &std::collections::HashSet<String>,
+    locals: &mut std::collections::HashSet<String>,
+    captured: &mut std::collections::HashMap<String, (Span, bool)>,
+) {
+    let outer_locals = locals.clone();
+    for item in &block.items {
+        match item {
+            BlockItem::Statement(stmt) => match stmt {
+                Statement::Let { name, value, .. } => {
+                    collect_vars_in_expr(value, params, locals, captured, false);
+                    locals.insert(name.name.clone());
+                }
+                Statement::Return { value, .. } => {
+                    if let Some(v) = value {
+                        collect_vars_in_expr(v, params, locals, captured, false);
+                    }
+                }
+                Statement::Expr { expr, .. } => {
+                    collect_vars_in_expr(expr, params, locals, captured, false);
+                }
+                _ => {}
+            },
+            BlockItem::IfChain(if_chain) => {
+                collect_vars_in_expr(&if_chain.if_block.condition, params, locals, captured, false);
+                collect_vars_in_block(&if_chain.if_block.body, params, locals, captured);
+                for elif in &if_chain.elif_blocks {
+                    collect_vars_in_expr(&elif.condition, params, locals, captured, false);
+                    collect_vars_in_block(&elif.body, params, locals, captured);
+                }
+                if let Some(else_b) = &if_chain.else_block {
+                    collect_vars_in_block(else_b, params, locals, captured);
+                }
+            }
+            BlockItem::Loop(loop_b) => {
+                collect_vars_in_block(&loop_b.body, params, locals, captured);
+            }
+            BlockItem::Match(match_b) => {
+                collect_vars_in_expr(&match_b.scrutinee, params, locals, captured, false);
+                for arm in &match_b.arms {
+                    collect_vars_in_expr(&arm.pattern, params, locals, captured, false);
+                    collect_vars_in_block(&arm.body, params, locals, captured);
+                }
+            }
+            BlockItem::Block(sub_b) => {
+                collect_vars_in_block(sub_b, params, locals, captured);
+            }
+        }
+    }
+    *locals = outer_locals;
+}
+
+fn collect_vars_in_expr(
+    expr: &Expr,
+    params: &std::collections::HashSet<String>,
+    locals: &std::collections::HashSet<String>,
+    captured: &mut std::collections::HashMap<String, (Span, bool)>,
+    is_assignment_lhs: bool,
+) {
+    match expr {
+        Expr::Ident(id) => {
+            let n = id.name.as_str();
+            if !params.contains(n) && !locals.contains(n) && !is_builtin_or_primitive(n) {
+                let entry = captured.entry(id.name.clone()).or_insert((id.span, false));
+                if is_assignment_lhs {
+                    entry.1 = true;
+                }
+            }
+        }
+        Expr::Binary { op, lhs, rhs, .. } => {
+            let is_assign = *op == BinOp::Assign;
+            collect_vars_in_expr(lhs, params, locals, captured, is_assign);
+            collect_vars_in_expr(rhs, params, locals, captured, false);
+        }
+        Expr::Unary { operand, .. } => {
+            collect_vars_in_expr(operand, params, locals, captured, false);
+        }
+        Expr::Call { callee, args, .. } => {
+            collect_vars_in_expr(callee, params, locals, captured, false);
+            for arg in args {
+                collect_vars_in_expr(arg, params, locals, captured, false);
+            }
+        }
+        Expr::Field { object, .. } => {
+            collect_vars_in_expr(object, params, locals, captured, false);
+        }
+        Expr::Cast { expr, .. } => {
+            collect_vars_in_expr(expr, params, locals, captured, false);
+        }
+        Expr::StructInit { fields, .. } => {
+            for f in fields {
+                collect_vars_in_expr(&f.value, params, locals, captured, false);
+            }
+        }
+        Expr::ArrayInit { elements, .. } => {
+            for el in elements {
+                collect_vars_in_expr(el, params, locals, captured, false);
+            }
+        }
+        Expr::Lambda { decl, .. } => {
+            let mut sub_params = params.clone();
+            for p in &decl.params {
+                sub_params.insert(p.name.name.clone());
+            }
+            if let Some(body) = &decl.body {
+                let mut sub_locals = locals.clone();
+                collect_vars_in_block(body, &sub_params, &mut sub_locals, captured);
+            }
+        }
+        Expr::PointerAssign { target, value, .. } => {
+            collect_vars_in_expr(target, params, locals, captured, true);
+            collect_vars_in_expr(value, params, locals, captured, false);
+        }
+        Expr::Propagate { expr, .. } => {
+            collect_vars_in_expr(expr, params, locals, captured, false);
+        }
+        Expr::Await { expr, .. } => {
+            collect_vars_in_expr(expr, params, locals, captured, false);
+        }
+        Expr::Yield { expr, .. } => {
+            collect_vars_in_expr(expr, params, locals, captured, false);
+        }
+        Expr::AsyncBlock { body, .. } => {
+            let mut sub_locals = locals.clone();
+            collect_vars_in_block(body, params, &mut sub_locals, captured);
+        }
+        Expr::Generic { base, .. } => {
+            collect_vars_in_expr(base, params, locals, captured, false);
+        }
+        Expr::CompilerCall { args, .. } => {
+            for arg in args {
+                collect_vars_in_expr(arg, params, locals, captured, false);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_builtin_or_primitive(name: &str) -> bool {
+    matches!(
+        name,
+        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
+            | "f32" | "f64" | "bool" | "char" | "String" | "str" | "void"
+            | "self" | "Self" | "true" | "false" | "print" | "println"
+    )
 }

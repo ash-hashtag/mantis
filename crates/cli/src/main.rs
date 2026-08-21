@@ -53,6 +53,9 @@ struct Args {
     )]
     auto_drop: bool,
 
+    #[arg(long, help = "print syntax-highlighted source code")]
+    highlight: bool,
+
     #[arg(trailing_var_arg = true)]
     run_args: Vec<String>,
 }
@@ -83,25 +86,49 @@ fn init_logger() {
 
 fn handle0(args: Args) {
     let filepath = args.input;
-    let input = std::fs::read_to_string(filepath).unwrap();
+    let input = match std::fs::read_to_string(&filepath) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("\x1b[31;1merror:\x1b[0m failed to read input file '{}': {}", filepath, e);
+            std::process::exit(1);
+        }
+    };
 
-    let src = Rc::from(input.trim());
+    if args.highlight {
+        println!("{}", mantis_syntax::highlight_to_ansi(&input));
+        return;
+    }
+
+    let src = Rc::from(input.as_str());
 
     let declarations = {
         let start = std::time::Instant::now();
-        let ast = mantis_parser::parse(&src).expect("parsing failed");
+        let ast = match mantis_parser::parse(&src) {
+            Ok(prog) => prog,
+            Err(e) => {
+                eprintln!("\x1b[31;1mcompilation error:\x1b[0m {}", e);
+                std::process::exit(1);
+            }
+        };
         let seconds = start.elapsed().as_secs_f64();
         log::info!("parsing mantis file took {:.4}s", seconds);
 
         ast
     };
 
+    // Run Borrow Checker
+    let borrow_errors = mantis_parser::borrow_checker::BorrowChecker::check_program(&src, &declarations);
+    if !borrow_errors.is_empty() {
+        for err in borrow_errors {
+            eprintln!("{}", err.format(&src));
+        }
+        std::process::exit(1);
+    }
+
     if let Some(ast_path) = &args.dbg {
         let content = format!("{:#?}", declarations);
-        std::fs::write(ast_path, &content);
+        let _ = std::fs::write(ast_path, &content);
         log::info!("wrote ast to {} {} bytes", ast_path, content.len());
-    } else {
-        // dbg!(&declarations);
     }
 
     let default_obj = format!("{}.o", args.module_name);
