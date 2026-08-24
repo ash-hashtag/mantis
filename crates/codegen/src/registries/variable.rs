@@ -44,7 +44,7 @@ impl MsVar {
                 let ptr = fbx.ins().stack_addr(cranelift::prelude::types::I64, ss, 0);
                 return fbx.ins().load(
                     cranelift::prelude::types::I64,
-                    cranelift::prelude::MemFlags::new(),
+                    cranelift::prelude::MemFlagsData::new(),
                     ptr,
                     0,
                 );

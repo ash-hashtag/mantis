@@ -131,11 +131,30 @@ impl Parser {
             Some(Token::Use) => Ok(Declaration::Use(self.parse_use()?)),
             Some(Token::Trait) => Ok(Declaration::Trait(self.parse_trait()?)),
             Some(Token::Impl) => Ok(Declaration::Impl(self.parse_impl()?)),
+            Some(Token::Static) => Ok(Declaration::Static(self.parse_static_decl()?)),
             _ => Err(self.error(format!(
-                "expected declaration (fn, type, import, use, trait, impl), found {:?}",
+                "expected declaration (fn, type, import, use, trait, impl, static), found {:?}",
                 self.peek()
             ))),
         }
+    }
+
+    fn parse_static_decl(&mut self) -> PResult<StaticDecl> {
+        let start = self.expect(&Token::Static)?;
+        let is_const = self.eat(&Token::Const);
+        let name = self.expect_ident()?;
+        self.expect(&Token::Colon)?;
+        let ty = self.parse_type_name()?;
+        self.expect(&Token::Eq)?;
+        let value = self.parse_expr(0)?;
+        let end = self.expect(&Token::Semi)?;
+        Ok(StaticDecl {
+            name,
+            ty,
+            value,
+            is_const,
+            span: start.merge(end),
+        })
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1194,6 +1213,9 @@ impl Parser {
     fn is_struct_init_start(&self) -> bool {
         if !matches!(self.peek(), Some(Token::LBrace)) {
             return false;
+        }
+        if matches!(self.peek_nth(1), Some(Token::RBrace)) {
+            return true;
         }
         // Look ahead: { ident = ... } or { ident : ... }
         if let Some(Token::Ident(_)) = self.peek_nth(1) {

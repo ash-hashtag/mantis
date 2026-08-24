@@ -62,20 +62,35 @@ fn main() -> io::Result<()> {
             }
             "textDocument/didOpen" => {
                 if let Some(params) = req.get("params") {
-                    let uri = params["textDocument"]["uri"].as_str().unwrap_or("").to_string();
-                    let text = params["textDocument"]["text"].as_str().unwrap_or("").to_string();
+                    let uri = params["textDocument"]["uri"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
+                    let text = params["textDocument"]["text"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
                     let diag_params = server.did_open(uri, text);
-                    send_notification("textDocument/publishDiagnostics", serde_json::to_value(diag_params).unwrap())?;
+                    send_notification(
+                        "textDocument/publishDiagnostics",
+                        serde_json::to_value(diag_params).unwrap(),
+                    )?;
                 }
             }
             "textDocument/didChange" => {
                 if let Some(params) = req.get("params") {
-                    let uri = params["textDocument"]["uri"].as_str().unwrap_or("").to_string();
+                    let uri = params["textDocument"]["uri"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
                     if let Some(changes) = params["contentChanges"].as_array() {
                         if let Some(first_change) = changes.first() {
                             let text = first_change["text"].as_str().unwrap_or("").to_string();
                             let diag_params = server.did_change(uri, text);
-                            send_notification("textDocument/publishDiagnostics", serde_json::to_value(diag_params).unwrap())?;
+                            send_notification(
+                                "textDocument/publishDiagnostics",
+                                serde_json::to_value(diag_params).unwrap(),
+                            )?;
                         }
                     }
                 }

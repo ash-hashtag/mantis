@@ -1,16 +1,22 @@
-fn malloc(size i64) i64 extern ;
-fn free(ptr i64) extern ;
-fn memcpy(dest i64, src i64, size i64) i64 extern ;
-fn memcmp(s1 i64, s2 i64, n i64) i32 extern ;
 
-fn alloc[T](count u64) @T {
-    return malloc(#size_of(T) * count) as @T;
+
+type MemoryAllocator = struct {
+
+};
+
+
+impl MemoryAllocator {
+    fn alloc(self @MemoryAllocator, count u64, item_size u64) i64 {
+        return malloc(item_size * count);
+    }
+
+    fn dealloc(self @MemoryAllocator, ptr i64) {
+        free(ptr);
+    }
+
+    fn copy_bytes(self @MemoryAllocator, dest i64, src i64, byte_count u64) {
+        memcpy(dest, src, byte_count);
+    }
 }
 
-fn dealloc[T](ptr @T) {
-    free(ptr as i64);
-}
-
-fn copy_bytes[T](dest @T, src @T, count u64) {
-    memcpy(dest as i64, src as i64, count * #size_of(T));
-}
+static const GlobalAllocator : MemoryAllocator = MemoryAllocator{};

@@ -32,6 +32,15 @@ impl std::fmt::Display for MantisError {
 
 impl std::error::Error for MantisError {}
 
+impl MantisError {
+    pub fn span(&self) -> token::Span {
+        match self {
+            Self::Lex(error) => error.span,
+            Self::Parse(error) => error.span,
+        }
+    }
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Tests
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -52,10 +61,7 @@ mod tests {
         match &result {
             Ok(prog) => {
                 eprintln!("{:#?}", prog);
-                assert!(
-                    prog.declarations.len() > 0,
-                    "expected declarations, got 0"
-                );
+                assert!(prog.declarations.len() > 0, "expected declarations, got 0");
             }
             Err(e) => {
                 panic!("parse failed: {}", e);
@@ -67,24 +73,18 @@ mod tests {
     fn test_parse_main() {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let path = format!("{}/../../examples/main.ms", manifest_dir);
-        let src = std::fs::read_to_string(&path)
-            .expect("cannot read main.ms");
+        let src = std::fs::read_to_string(&path).expect("cannot read main.ms");
         let result = parse(&src);
         match &result {
             Ok(prog) => {
                 eprintln!("{:#?}", prog);
-                assert!(
-                    prog.declarations.len() > 0,
-                    "expected declarations, got 0"
-                );
+                assert!(prog.declarations.len() > 0, "expected declarations, got 0");
             }
             Err(e) => {
                 panic!("parse failed: {}", e);
             }
         }
     }
-
-
 
     #[test]
     fn test_expressions() {
@@ -98,8 +98,36 @@ mod tests {
         ];
         for src in cases {
             let result = parse(src);
-            assert!(result.is_ok(), "failed to parse: {} — {:?}", src, result.err());
+            assert!(
+                result.is_ok(),
+                "failed to parse: {} — {:?}",
+                src,
+                result.err()
+            );
         }
+    }
+
+    #[test]
+    fn parses_static_const_with_empty_struct_initializer() {
+        let source =
+            "type Allocator = struct {}; static const GlobalAllocator: Allocator = Allocator{};";
+        let program = parse(source).expect("static const should parse");
+        let ast::Declaration::Static(decl) = &program.declarations[1] else {
+            panic!("expected static declaration");
+        };
+        assert!(decl.is_const);
+        assert_eq!(decl.name.name, "GlobalAllocator");
+        assert!(
+            matches!(decl.value, ast::Expr::StructInit { ref fields, .. } if fields.is_empty())
+        );
+    }
+
+    #[test]
+    fn static_const_error_points_at_missing_colon() {
+        let source = "static const Broken Allocator = Allocator{};";
+        let error = parse(source).expect_err("missing ':' should fail");
+        assert_eq!(error.span().text(source), "Allocator");
+        assert!(error.to_string().contains("expected Colon"));
     }
 
     #[test]
@@ -128,7 +156,7 @@ mod tests {
 
         let result = parse(src).expect("Failed to parse precedence test");
         let decl = &result.declarations[0];
-        
+
         let ast::Declaration::Function(fn_decl) = decl else {
             panic!("Expected function declaration");
         };
@@ -146,47 +174,124 @@ mod tests {
 
         // 1 + 2 * 3 => 1 + (2 * 3)
         let a_val = get_let_val!(&body.items[0]);
-        if let ast::Expr::Binary { op: ast::BinOp::Add, rhs, .. } = a_val {
-            if let ast::Expr::Binary { op: ast::BinOp::Mul, .. } = &**rhs {
+        if let ast::Expr::Binary {
+            op: ast::BinOp::Add,
+            rhs,
+            ..
+        } = a_val
+        {
+            if let ast::Expr::Binary {
+                op: ast::BinOp::Mul,
+                ..
+            } = &**rhs
+            {
                 // ok
-            } else { panic!("a_val rhs is not Mul: {:?}", rhs) }
-        } else { panic!("a_val is not Add: {:?}", a_val) }
+            } else {
+                panic!("a_val rhs is not Mul: {:?}", rhs)
+            }
+        } else {
+            panic!("a_val is not Add: {:?}", a_val)
+        }
 
         // 1 * 2 + 3 => (1 * 2) + 3
         let b_val = get_let_val!(&body.items[1]);
-        if let ast::Expr::Binary { op: ast::BinOp::Add, lhs, .. } = b_val {
-            if let ast::Expr::Binary { op: ast::BinOp::Mul, .. } = &**lhs {
+        if let ast::Expr::Binary {
+            op: ast::BinOp::Add,
+            lhs,
+            ..
+        } = b_val
+        {
+            if let ast::Expr::Binary {
+                op: ast::BinOp::Mul,
+                ..
+            } = &**lhs
+            {
                 // ok
-            } else { panic!("b_val lhs is not Mul: {:?}", lhs) }
-        } else { panic!("b_val is not Add: {:?}", b_val) }
+            } else {
+                panic!("b_val lhs is not Mul: {:?}", lhs)
+            }
+        } else {
+            panic!("b_val is not Add: {:?}", b_val)
+        }
 
         // -1 + 2 => (-1) + 2
         let c_val = get_let_val!(&body.items[2]);
-        if let ast::Expr::Binary { op: ast::BinOp::Add, lhs, .. } = c_val {
-            if let ast::Expr::Unary { op: ast::UnaryOp::Neg, .. } = &**lhs {
+        if let ast::Expr::Binary {
+            op: ast::BinOp::Add,
+            lhs,
+            ..
+        } = c_val
+        {
+            if let ast::Expr::Unary {
+                op: ast::UnaryOp::Neg,
+                ..
+            } = &**lhs
+            {
                 // ok
-            } else { panic!("c_val lhs is not Neg: {:?}", lhs) }
-        } else { panic!("c_val is not Add: {:?}", c_val) }
+            } else {
+                panic!("c_val lhs is not Neg: {:?}", lhs)
+            }
+        } else {
+            panic!("c_val is not Add: {:?}", c_val)
+        }
 
         // 1 < 2 == 3 < 4 => (1 < 2) == (3 < 4)
         let d_val = get_let_val!(&body.items[3]);
-        if let ast::Expr::Binary { op: ast::BinOp::Eq, lhs, rhs, .. } = d_val {
-            if let ast::Expr::Binary { op: ast::BinOp::Lt, .. } = &**lhs {
-                if let ast::Expr::Binary { op: ast::BinOp::Lt, .. } = &**rhs {
+        if let ast::Expr::Binary {
+            op: ast::BinOp::Eq,
+            lhs,
+            rhs,
+            ..
+        } = d_val
+        {
+            if let ast::Expr::Binary {
+                op: ast::BinOp::Lt, ..
+            } = &**lhs
+            {
+                if let ast::Expr::Binary {
+                    op: ast::BinOp::Lt, ..
+                } = &**rhs
+                {
                     // ok
-                } else { panic!("d_val rhs is not Lt: {:?}", rhs) }
-            } else { panic!("d_val lhs is not Lt: {:?}", lhs) }
-        } else { panic!("d_val is not Eq: {:?}", d_val) }
+                } else {
+                    panic!("d_val rhs is not Lt: {:?}", rhs)
+                }
+            } else {
+                panic!("d_val lhs is not Lt: {:?}", lhs)
+            }
+        } else {
+            panic!("d_val is not Eq: {:?}", d_val)
+        }
 
         // 1 & 2 == 3 | 4 => (1 & 2) == (3 | 4)
         let e_val = get_let_val!(&body.items[4]);
-        if let ast::Expr::Binary { op: ast::BinOp::Eq, lhs, rhs, .. } = e_val {
-            if let ast::Expr::Binary { op: ast::BinOp::BitAnd, .. } = &**lhs {
-                if let ast::Expr::Binary { op: ast::BinOp::BitOr, .. } = &**rhs {
+        if let ast::Expr::Binary {
+            op: ast::BinOp::Eq,
+            lhs,
+            rhs,
+            ..
+        } = e_val
+        {
+            if let ast::Expr::Binary {
+                op: ast::BinOp::BitAnd,
+                ..
+            } = &**lhs
+            {
+                if let ast::Expr::Binary {
+                    op: ast::BinOp::BitOr,
+                    ..
+                } = &**rhs
+                {
                     // ok
-                } else { panic!("e_val rhs is not BitOr: {:?}", rhs) }
-            } else { panic!("e_val lhs is not BitAnd: {:?}", lhs) }
-        } else { panic!("e_val is not Eq: {:?}", e_val) }
+                } else {
+                    panic!("e_val rhs is not BitOr: {:?}", rhs)
+                }
+            } else {
+                panic!("e_val lhs is not BitAnd: {:?}", lhs)
+            }
+        } else {
+            panic!("e_val is not Eq: {:?}", e_val)
+        }
     }
 
     #[test]
@@ -218,7 +323,10 @@ mod tests {
         "#;
         let prog = parse(src).expect("Failed to parse");
         let diags = borrow_checker::BorrowChecker::check_program(src, &prog);
-        assert!(!diags.is_empty(), "Expected borrow checker diagnostic for mutable capture of immutable variable");
+        assert!(
+            !diags.is_empty(),
+            "Expected borrow checker diagnostic for mutable capture of immutable variable"
+        );
         let msg = diags[0].format(src);
         assert!(msg.contains("cannot capture immutable variable 'x' as mutable reference"));
     }

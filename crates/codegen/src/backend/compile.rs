@@ -608,6 +608,71 @@ pub fn compile_binary(
     }
 
     // Pass 2: Pre-declare non-generic function signatures
+    // Materialize statics after their types are known. Static initializers are
+    // deliberately restricted to compile-time zero-valued struct literals for
+    // now; this keeps their address stable and prevents hidden runtime work.
+    for declaration in &declarations {
+        if let Declaration::Static(static_decl) = declaration {
+            let ty = ms_ctx
+                .current_module
+                .resolve(&static_decl.ty)
+                .and_then(|r| r.ty())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "undefined type for static '{}' at {}",
+                        static_decl.name.name,
+                        static_decl.ty.span()
+                    )
+                });
+            match (&ty.ty, &static_decl.value) {
+                (MsType::Struct(sty), mantis_parser::ast::Expr::StructInit { fields, .. })
+                    if fields.is_empty() =>
+                {
+                    let data_id = module
+                        .declare_data(
+                            &static_decl.name.name,
+                            Linkage::Local,
+                            !static_decl.is_const,
+                            false,
+                        )
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "invalid static '{}' at {}: {}",
+                                static_decl.name.name, static_decl.span, e
+                            )
+                        });
+                    let mut description = DataDescription::new();
+                    description.define_zeroinit(sty.size().max(1));
+                    module
+                        .define_data(data_id, &description)
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "cannot define static '{}' at {}: {}",
+                                static_decl.name.name, static_decl.span, e
+                            )
+                        });
+                    ms_ctx.globals.insert(
+                        static_decl.name.name.clone().into_boxed_str(),
+                        crate::ms::MsGlobal {
+                            data_id,
+                            ty_id: ty.id,
+                            is_const: static_decl.is_const,
+                        },
+                    );
+                }
+                (MsType::Struct(_), mantis_parser::ast::Expr::StructInit { .. }) => {
+                    panic!("static struct '{}' at {} currently requires an empty compile-time initializer", static_decl.name.name, static_decl.span);
+                }
+                _ => panic!(
+                    "initializer for static '{}' at {} is not a supported compile-time constant",
+                    static_decl.name.name,
+                    static_decl.value.span()
+                ),
+            }
+        }
+    }
+
+    // Pass 2: Pre-declare non-generic function signatures
     for declaration in &declarations {
         if let Declaration::Function(function_decl) = declaration {
             let is_generic = function_decl
@@ -712,6 +777,7 @@ pub fn compile_binary(
             Declaration::TypeDef(_) => {}
             Declaration::Use(_) | Declaration::Import(_) => {}
             Declaration::Trait(_) => {}
+            Declaration::Static(_) => {}
             Declaration::Impl(impl_block) => {
                 if impl_block.generics.is_empty() {
                     let for_type = if let Some(ref for_ty) = impl_block.for_type {

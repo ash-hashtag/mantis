@@ -6,6 +6,7 @@ use cranelift::{
             types::{I32, I64},
             AbiParam, FuncRef, InstBuilder, Signature, UserExternalName, UserFuncName, Value,
         },
+        isa::TargetFrontendConfig,
         Context,
     },
     frontend::{FunctionBuilder, FunctionBuilderContext},
@@ -165,6 +166,7 @@ impl Function {
         &self,
         ctx: &mut Context,
         fbx: &mut FunctionBuilderContext,
+        frontend_config: TargetFrontendConfig,
         ms_ctx: &mut MsContext,
     ) -> anyhow::Result<()> {
         ctx.func.signature.params = self
@@ -210,7 +212,7 @@ impl Function {
             builder.ins().return_(&[]);
         }
 
-        builder.finalize();
+        builder.finalize(frontend_config);
         Ok(())
     }
 }

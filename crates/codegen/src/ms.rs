@@ -1,8 +1,18 @@
+use crate::registries::types::MsTypeId;
 use cranelift::{
     codegen::ir::Inst,
     prelude::{EntityRef, FunctionBuilder, InstBuilder, Variable},
 };
+use cranelift_module::DataId;
 use cranelift_object::ObjectModule;
+use std::collections::HashMap;
+
+#[derive(Clone, Copy)]
+pub struct MsGlobal {
+    pub data_id: DataId,
+    pub ty_id: MsTypeId,
+    pub is_const: bool,
+}
 
 use crate::{
     registries::{
@@ -21,6 +31,7 @@ pub struct MsContext {
     pub current_module: MsModule,
     pub disable_auto_drop: bool,
     pub instantiation_queue: Vec<MsInstantiation>,
+    pub globals: HashMap<Box<str>, MsGlobal>,
 }
 
 impl MsContext {
@@ -32,6 +43,7 @@ impl MsContext {
             loop_scopes: Default::default(),
             disable_auto_drop: false,
             instantiation_queue: vec![],
+            globals: HashMap::new(),
         }
     }
 

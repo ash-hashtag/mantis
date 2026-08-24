@@ -223,7 +223,7 @@ pub fn compile_binary(program: Program, module_name: &str) -> anyhow::Result<Vec
             }
 
             builder.seal_all_blocks();
-            builder.finalize();
+            builder.finalize(module.isa().frontend_config());
             module
                 .define_function(func_id, &mut ctx)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -625,7 +625,7 @@ fn resolve_object_ptr(
             // Since struct fields store a pointer to the nested struct, we need to load it.
             let inner_ptr = builder
                 .ins()
-                .load(types::I64, MemFlags::new(), field_ptr, 0);
+                .load(types::I64, MemFlagsData::new(), field_ptr, 0);
             Ok((inner_ptr, nested_struct_name))
         }
         _ => Err(anyhow::anyhow!(
@@ -656,7 +656,7 @@ fn compile_field_assign(
         env,
         type_registry,
     )?;
-    builder.ins().store(MemFlags::new(), val, field_ptr, 0);
+    builder.ins().store(MemFlagsData::new(), val, field_ptr, 0);
     Ok(())
 }
 
@@ -678,7 +678,7 @@ fn compile_expr(
         Expr::FloatLit { value, .. } => {
             let float_bytes = value.to_bits();
             let bits = builder.ins().iconst(types::I64, float_bytes as i64);
-            Ok(builder.ins().bitcast(types::F64, MemFlags::new(), bits))
+            Ok(builder.ins().bitcast(types::F64, MemFlagsData::new(), bits))
         }
         Expr::CharLit { value, .. } => Ok(builder.ins().iconst(types::I64, *value as i64)),
         Expr::BoolLit { value, .. } => {
@@ -914,7 +914,7 @@ fn compile_expr(
                     type_registry,
                 )?;
                 let field_ptr = builder.ins().iadd_imm(base_ptr, field_info.offset as i64);
-                builder.ins().store(MemFlags::new(), val, field_ptr, 0);
+                builder.ins().store(MemFlagsData::new(), val, field_ptr, 0);
             }
 
             Ok(base_ptr)
@@ -929,12 +929,12 @@ fn compile_expr(
             if field_info.struct_type_name.is_some() {
                 Ok(builder
                     .ins()
-                    .load(types::I64, MemFlags::new(), field_ptr, 0))
+                    .load(types::I64, MemFlagsData::new(), field_ptr, 0))
             } else {
                 // Load the primitive value from memory.
                 let val = builder
                     .ins()
-                    .load(field_info.cl_type, MemFlags::new(), field_ptr, 0);
+                    .load(field_info.cl_type, MemFlagsData::new(), field_ptr, 0);
                 // If the field type is smaller than I64, extend it so the rest of
                 // the compiler (which treats everything as I64) works uniformly.
                 if field_info.cl_type.bits() < 64 {
@@ -962,7 +962,7 @@ fn compile_expr(
                 UnaryOp::Not => Ok(builder.ins().bnot(val)),
                 UnaryOp::Deref => {
                     // Dereference a pointer: load the i64 at the address.
-                    Ok(builder.ins().load(types::I64, MemFlags::new(), val, 0))
+                    Ok(builder.ins().load(types::I64, MemFlagsData::new(), val, 0))
                 }
                 UnaryOp::AddrOf => {
                     // For now, addr-of is a no-op (variables are already pointers
@@ -992,7 +992,7 @@ fn compile_expr(
                 env,
                 type_registry,
             )?;
-            builder.ins().store(MemFlags::new(), val, ptr, 0);
+            builder.ins().store(MemFlagsData::new(), val, ptr, 0);
             Ok(val)
         }
 

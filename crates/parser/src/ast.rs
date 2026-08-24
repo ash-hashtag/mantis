@@ -22,6 +22,18 @@ pub enum Declaration {
     Trait(TraitDef),
     Impl(ImplBlock),
     Use(UseDecl),
+    Static(StaticDecl),
+}
+
+/// A module-level object with a stable address.
+/// `static const NAME: Type = value;`
+#[derive(Debug, Clone)]
+pub struct StaticDecl {
+    pub name: Ident,
+    pub ty: TypeExpr,
+    pub value: Expr,
+    pub is_const: bool,
+    pub span: Span,
 }
 
 // ── Import ───────────────────────────────────────────────────────────────────
@@ -517,7 +529,13 @@ fn collect_vars_in_block(
                 _ => {}
             },
             BlockItem::IfChain(if_chain) => {
-                collect_vars_in_expr(&if_chain.if_block.condition, params, locals, captured, false);
+                collect_vars_in_expr(
+                    &if_chain.if_block.condition,
+                    params,
+                    locals,
+                    captured,
+                    false,
+                );
                 collect_vars_in_block(&if_chain.if_block.body, params, locals, captured);
                 for elif in &if_chain.elif_blocks {
                     collect_vars_in_expr(&elif.condition, params, locals, captured, false);
@@ -634,8 +652,25 @@ fn collect_vars_in_expr(
 fn is_builtin_or_primitive(name: &str) -> bool {
     matches!(
         name,
-        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
-            | "f32" | "f64" | "bool" | "char" | "String" | "str" | "void"
-            | "self" | "Self" | "true" | "false" | "print" | "println"
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "char"
+            | "String"
+            | "str"
+            | "void"
+            | "self"
+            | "Self"
+            | "true"
+            | "false"
+            | "print"
+            | "println"
     )
 }

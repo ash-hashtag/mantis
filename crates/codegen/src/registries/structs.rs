@@ -6,7 +6,7 @@ use std::{
 use cranelift::{
     codegen::ir::StackSlot,
     prelude::{
-        isa::TargetFrontendConfig, types, AbiParam, FunctionBuilder, InstBuilder, MemFlags,
+        isa::TargetFrontendConfig, types, AbiParam, FunctionBuilder, InstBuilder, MemFlagsData,
         StackSlotData,
     },
 };
@@ -141,7 +141,7 @@ impl MsStructType {
         let value = match field_ty {
             MsType::Native(nty) => fbx.ins().load(
                 field_ty.to_cl_type().unwrap(),
-                MemFlags::new(),
+                MemFlagsData::new(),
                 ptr.value(),
                 field.offset as i32,
             ),
@@ -196,11 +196,23 @@ impl MsStructType {
                     value.value()
                 };
                 fbx.ins()
-                    .store(MemFlags::new(), val, ptr.value(), field.offset as i32);
+                    .store(MemFlagsData::new(), val, ptr.value(), field.offset as i32);
             }
             MsType::Struct(struct_ty) => {
                 let dest = fbx.ins().iadd_imm(ptr.value(), field.offset as i64);
                 struct_ty.copy(dest, value.value(), fbx, module, ms_ctx);
+            }
+            MsType::Ref(_, _) | MsType::Function(_) => {
+                fbx.ins().store(
+                    MemFlagsData::new(),
+                    value.value(),
+                    ptr.value(),
+                    field.offset as i32,
+                );
+            }
+            MsType::Enum(enum_ty) => {
+                let dest = fbx.ins().iadd_imm(ptr.value(), field.offset as i64);
+                enum_ty.copy(dest, value.value(), fbx, module, ms_ctx);
             }
             _ => todo!(),
         }
@@ -329,7 +341,7 @@ impl MsEnumType {
                 found_variant = true;
                 {
                     let value = fbx.ins().iconst(types::I64, idx as i64);
-                    fbx.ins().store(MemFlags::new(), value, self_ptr, 0); // storing the tag
+                    fbx.ins().store(MemFlagsData::new(), value, self_ptr, 0); // storing the tag
                 }
 
                 if let Some(value) = value {
@@ -388,7 +400,7 @@ impl MsEnumType {
         ptr: cranelift::prelude::Value,
         fbx: &mut FunctionBuilder,
     ) -> cranelift::prelude::Value {
-        fbx.ins().load(types::I64, MemFlags::new(), ptr, 0)
+        fbx.ins().load(types::I64, MemFlagsData::new(), ptr, 0)
     }
 
     pub fn get_inner_ptr(

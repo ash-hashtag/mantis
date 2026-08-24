@@ -39,7 +39,7 @@ impl NodeResult {
                     .unwrap();
                 let cl_ty = ty.to_cl_type().unwrap();
                 let addr = fbx.ins().iadd_imm(*ptr, *offset as i64);
-                fbx.ins().load(cl_ty, MemFlags::new(), addr, 0)
+                fbx.ins().load(cl_ty, MemFlagsData::new(), addr, 0)
             }
             NodeResult::EnumUnwrap(_, _) => panic!("Cannot get value of an EnumUnwrap NodeResult"),
             NodeResult::TypeRef(ty) => fbx.ins().iconst(types::I64, ty.id.0 as i64),

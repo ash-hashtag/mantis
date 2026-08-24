@@ -1,21 +1,20 @@
 use std.vec;
+use std.memory;
 
 fn malloc(size i64) i64 extern ;
 fn free(ptr i64) extern ;
 fn memcpy(dest i64, src i64, size i64) i64 extern ;
 
 type String = struct {
-    vec @Vec[u8]
+    vec Vec[u8]
 }
 
 impl String {
-    fn with_capacity(cap u64) @String {
-        let s @String = malloc(#size_of(String)) as @String;
-        s.vec = Vec.with_capacity[u8](cap);
-        return s;
+    fn with_capacity(cap u64) String {
+        return String { vec: Vec.with_capacity[u8](cap) };
     }
 
-    fn new() @String {
+    fn new() String {
         return String.with_capacity(0);
     }
 
@@ -35,7 +34,7 @@ impl String {
         }
     }
 
-    fn from_str(s StrSlice) @String {
+    fn from_str(s StrSlice) String {
         let str = String.with_capacity(s.len as u64);
         str.push_str(s);
         return str;
@@ -59,6 +58,5 @@ impl String {
 
     fn free(self @String) {
         self.vec.free();
-        free(self as i64);
     }
 }

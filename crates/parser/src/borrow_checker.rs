@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::ast::*;
 use crate::token::Span;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct BorrowDiagnostic {
@@ -47,10 +47,7 @@ fn get_line_col(source: &str, offset: usize) -> (usize, usize) {
 }
 
 fn get_snippet(source: &str, line_no: usize) -> &str {
-    source
-        .lines()
-        .nth(line_no.saturating_sub(1))
-        .unwrap_or("")
+    source.lines().nth(line_no.saturating_sub(1)).unwrap_or("")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,9 +100,10 @@ impl<'a> BorrowChecker<'a> {
 
     fn register_variable(&mut self, name: &str, is_mutable: bool, span: Span) {
         if let Some(scope) = self.scopes.last_mut() {
-            scope
-                .variables
-                .insert(name.to_string(), (VariableState::Active { is_mutable }, span));
+            scope.variables.insert(
+                name.to_string(),
+                (VariableState::Active { is_mutable }, span),
+            );
         }
     }
 
@@ -209,7 +207,9 @@ impl<'a> BorrowChecker<'a> {
                             message: format!("use of moved value '{}'", id.name),
                             span: id.span,
                             note: Some(format!("'{}' was moved previously in this scope", id.name)),
-                            help: Some("consider cloning or referencing the value instead".to_string()),
+                            help: Some(
+                                "consider cloning or referencing the value instead".to_string(),
+                            ),
                         });
                     }
                 }
@@ -341,8 +341,25 @@ impl<'a> BorrowChecker<'a> {
 fn is_builtin_symbol(name: &str) -> bool {
     matches!(
         name,
-        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
-            | "f32" | "f64" | "bool" | "char" | "String" | "str" | "void"
-            | "self" | "Self" | "true" | "false" | "print" | "println"
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "char"
+            | "String"
+            | "str"
+            | "void"
+            | "self"
+            | "Self"
+            | "true"
+            | "false"
+            | "print"
+            | "println"
     )
 }

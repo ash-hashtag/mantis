@@ -89,7 +89,10 @@ fn handle0(args: Args) {
     let input = match std::fs::read_to_string(&filepath) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("\x1b[31;1merror:\x1b[0m failed to read input file '{}': {}", filepath, e);
+            eprintln!(
+                "\x1b[31;1merror:\x1b[0m failed to read input file '{}': {}",
+                filepath, e
+            );
             std::process::exit(1);
         }
     };
@@ -106,7 +109,7 @@ fn handle0(args: Args) {
         let ast = match mantis_parser::parse(&src) {
             Ok(prog) => prog,
             Err(e) => {
-                eprintln!("\x1b[31;1mcompilation error:\x1b[0m {}", e);
+                emit_source_error(&filepath, &input, &e.to_string(), e.span());
                 std::process::exit(1);
             }
         };
@@ -117,7 +120,8 @@ fn handle0(args: Args) {
     };
 
     // Run Borrow Checker
-    let borrow_errors = mantis_parser::borrow_checker::BorrowChecker::check_program(&src, &declarations);
+    let borrow_errors =
+        mantis_parser::borrow_checker::BorrowChecker::check_program(&src, &declarations);
     if !borrow_errors.is_empty() {
         for err in borrow_errors {
             eprintln!("{}", err.format(&src));
@@ -173,6 +177,35 @@ fn handle0(args: Args) {
             let _ = run_cmd(&exe_file_path, &cmd_args).code().unwrap();
         }
     }
+}
+
+fn emit_source_error(path: &str, source: &str, message: &str, span: mantis_parser::token::Span) {
+    let start = span.start.min(source.len());
+    let line_start = source[..start].rfind('\n').map_or(0, |index| index + 1);
+    let line_end = source[start..]
+        .find('\n')
+        .map_or(source.len(), |index| start + index);
+    let line_number = source[..line_start]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1;
+    let column = source[line_start..start].chars().count() + 1;
+    let width = source[start..span.end.min(line_end)].chars().count().max(1);
+
+    eprintln!("\x1b[31;1merror:\x1b[0m {}", message);
+    eprintln!(" \x1b[34m-->\x1b[0m {}:{}:{}", path, line_number, column);
+    eprintln!("  \x1b[34m|\x1b[0m");
+    eprintln!(
+        "\x1b[34m{:>2} |\x1b[0m {}",
+        line_number,
+        &source[line_start..line_end]
+    );
+    eprintln!(
+        "  \x1b[34m|\x1b[0m {}\x1b[31m{}\x1b[0m",
+        " ".repeat(column - 1),
+        "^".repeat(width)
+    );
 }
 
 pub fn run_cmd(exe: &str, args: &[&str]) -> ExitStatus {

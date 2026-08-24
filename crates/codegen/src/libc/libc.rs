@@ -7,7 +7,7 @@ use cranelift::{
         ir::{
             self,
             types::{self, I64},
-            AbiParam, FuncRef, GlobalValueData, Inst, InstBuilder, MemFlags, Signature,
+            AbiParam, FuncRef, GlobalValueData, Inst, InstBuilder, Signature,
             UserExternalName, UserFuncName,
         },
         settings::{self, Configurable},
@@ -72,7 +72,7 @@ pub fn declare_external_function(
     let results = builder.inst_results(inst).to_vec();
     builder.ins().return_(&results);
     builder.seal_all_blocks();
-    builder.finalize();
+    builder.finalize(module.isa().frontend_config());
 
     let id = module.declare_function(wrapper_fn_name, Linkage::Local, &ctx.func.signature)?;
 
@@ -118,7 +118,7 @@ pub fn malloc_test() -> anyhow::Result<Vec<u8>> {
         builder.ins().return_(&[result]);
 
         builder.seal_all_blocks();
-        builder.finalize();
+        builder.finalize(module.isa().frontend_config());
 
         let id = module.declare_function("libc_malloc", Linkage::Local, &ctx.func.signature)?;
 
@@ -144,7 +144,7 @@ pub fn malloc_test() -> anyhow::Result<Vec<u8>> {
         builder.ins().return_(&[result]);
 
         builder.seal_all_blocks();
-        builder.finalize();
+        builder.finalize(module.isa().frontend_config());
 
         let id = module.declare_function("libc_puts", Linkage::Local, &ctx.func.signature)?;
 
@@ -185,12 +185,12 @@ pub fn malloc_test() -> anyhow::Result<Vec<u8>> {
         // }
         let string_ptr = module.declare_data_in_func(data_id, builder.func);
         let func_ref = module.declare_func_in_func(libc_puts_fn_id, &mut builder.func);
-        let string_ptr = builder.ins().global_value(I64, string_ptr);
+        let string_ptr = builder.ins().symbol_value(I64, string_ptr);
         let call_inst = builder.ins().call(func_ref, &[string_ptr]);
         let puts_result = builder.inst_results(call_inst)[0];
         builder.ins().return_(&[puts_result]);
         builder.seal_all_blocks();
-        builder.finalize();
+        builder.finalize(module.isa().frontend_config());
         let func_id = module.declare_function("main", Linkage::Export, &signature)?;
         module.define_function(func_id, &mut ctx)?;
         module.clear_context(&mut ctx);

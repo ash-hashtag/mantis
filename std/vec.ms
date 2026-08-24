@@ -1,6 +1,4 @@
-fn malloc(size i64) i64 extern ;
-fn free(ptr i64) extern ;
-fn memcpy(dest i64, src i64, size i64) i64 extern ;
+use std.memory;
 
 type Vec[T] = struct {
     ptr @T,
@@ -9,19 +7,15 @@ type Vec[T] = struct {
 }
 
 impl[T] Vec[T] {
-    fn with_capacity(cap u64) @Vec[T] {
-        let v @Vec[T] = malloc(#size_of(Vec[T])) as @Vec[T];
+    fn with_capacity(cap u64) Vec[T] {
+        let mut ptr @T = 0 as @T;
         if cap > 0 {
-            v.ptr = malloc(#size_of(T) * cap) as @T;
-        } else {
-            v.ptr = 0 as @T;
+            ptr = GlobalAllocator.alloc(cap, #size_of(T)) as @T;
         }
-        v.size = 0;
-        v.cap = cap;
-        return v;
+        return Vec[T] { ptr: ptr, size: 0, cap: cap };
     }
 
-    fn new() @Vec[T] {
+    fn new() Vec[T] {
         return Vec.with_capacity[T](0);
     }
 
@@ -51,10 +45,10 @@ impl[T] Vec[T] {
             if self.cap > 0 {
                 new_cap = self.cap * 2;
             }
-            let new_ptr = malloc(#size_of(T) * new_cap) as @T;
+            let new_ptr = GlobalAllocator.alloc(new_cap, #size_of(T)) as @T;
             if self.size > 0 {
-                memcpy(new_ptr as i64, self.ptr as i64, self.size * #size_of(T));
-                free(self.ptr as i64);
+                GlobalAllocator.copy_bytes(new_ptr as i64, self.ptr as i64, self.size * #size_of(T));
+                GlobalAllocator.dealloc(self.ptr as i64);
             }
             self.ptr = new_ptr;
             self.cap = new_cap;
@@ -77,8 +71,7 @@ impl[T] Vec[T] {
 
     fn free(self @Vec[T]) {
         if self.cap > 0 {
-            free(self.ptr as i64);
+            GlobalAllocator.dealloc(self.ptr as i64);
         }
-        free(self as i64);
     }
 }

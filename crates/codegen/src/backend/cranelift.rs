@@ -34,13 +34,13 @@ fn test_cranelift() -> anyhow::Result<()> {
 
     let mut ctx = module.make_context();
 
-    build_loop_fn(&mut ctx, &mut fn_builder_ctx);
+    build_loop_fn(&mut ctx, &mut fn_builder_ctx, isa.frontend_config());
     let func_id =
         module.declare_function("loop_function", Linkage::Preemptible, &ctx.func.signature)?;
     module.define_function(func_id, &mut ctx)?;
     module.clear_context(&mut ctx);
 
-    build_ifelse_main_fn(&mut ctx, &mut fn_builder_ctx);
+    build_ifelse_main_fn(&mut ctx, &mut fn_builder_ctx, isa.frontend_config());
     let func_id =
         module.declare_function("ifelse_function", Linkage::Preemptible, &ctx.func.signature)?;
     module.define_function(func_id, &mut ctx)?;
@@ -51,18 +51,18 @@ fn test_cranelift() -> anyhow::Result<()> {
     module.define_function(func_id, &mut ctx)?;
     module.clear_context(&mut ctx);
 
-    create_small_struct_fn(&mut ctx, &mut fn_builder_ctx);
+    create_small_struct_fn(&mut ctx, &mut fn_builder_ctx, isa.frontend_config());
     let func_id =
         module.declare_function("create_small_struct", Linkage::Export, &ctx.func.signature)?;
     module.define_function(func_id, &mut ctx)?;
     module.clear_context(&mut ctx);
 
-    sum_the_foo_fn(&mut ctx, &mut fn_builder_ctx);
+    sum_the_foo_fn(&mut ctx, &mut fn_builder_ctx, isa.frontend_config());
     let func_id = module.declare_function("sum_foo", Linkage::Export, &ctx.func.signature)?;
     module.define_function(func_id, &mut ctx)?;
     module.clear_context(&mut ctx);
 
-    sum_from_foo_ptr_fn(&mut ctx, &mut fn_builder_ctx);
+    sum_from_foo_ptr_fn(&mut ctx, &mut fn_builder_ctx, isa.frontend_config());
     let func_id = module.declare_function("sum_foo_ptr", Linkage::Export, &ctx.func.signature)?;
     module.define_function(func_id, &mut ctx)?;
     module.clear_context(&mut ctx);
@@ -184,7 +184,11 @@ impl IfElseChainBuilder {
     }
 }
 
-fn build_ifelse_main_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
+fn build_ifelse_main_fn(
+    ctx: &mut Context,
+    fbx: &mut FunctionBuilderContext,
+    frontend_config: TargetFrontendConfig,
+) {
     ctx.func.signature.params = vec![AbiParam::new(I32), AbiParam::new(I64)];
     ctx.func.signature.returns = vec![AbiParam::new(I32)];
     let mut f = FunctionBuilder::new(&mut ctx.func, fbx);
@@ -240,7 +244,7 @@ fn build_ifelse_main_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
 
     let ret = f.use_var(i);
     f.ins().return_(&[ret]);
-    f.finalize();
+    f.finalize(frontend_config);
 }
 
 pub struct Loop {
@@ -279,7 +283,11 @@ impl Loop {
     }
 }
 
-fn build_loop_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
+fn build_loop_fn(
+    ctx: &mut Context,
+    fbx: &mut FunctionBuilderContext,
+    frontend_config: TargetFrontendConfig,
+) {
     ctx.func.signature.params = vec![AbiParam::new(I32), AbiParam::new(I64)];
     ctx.func.signature.returns = vec![AbiParam::new(I32)];
     let mut f = FunctionBuilder::new(&mut ctx.func, fbx);
@@ -336,7 +344,7 @@ fn build_loop_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
 
     let ret = f.use_var(i);
     f.ins().return_(&[ret]);
-    f.finalize();
+    f.finalize(frontend_config);
 }
 
 // fn create_foo_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
@@ -385,11 +393,11 @@ fn create_foo_fn(module: &mut ObjectModule, ctx: &mut Context, fbx: &mut Functio
 
     let size_of_foo = 32;
 
-    f.ins().store(MemFlags::new(), sixty, stack_pointer, 0);
-    f.ins().store(MemFlags::new(), b, stack_pointer, 4);
-    f.ins().store(MemFlags::new(), sixty, stack_pointer, 8);
-    f.ins().store(MemFlags::new(), zero, stack_pointer, 16);
-    f.ins().store(MemFlags::new(), zero, stack_pointer, 24);
+    f.ins().store(MemFlagsData::new(), sixty, stack_pointer, 0);
+    f.ins().store(MemFlagsData::new(), b, stack_pointer, 4);
+    f.ins().store(MemFlagsData::new(), sixty, stack_pointer, 8);
+    f.ins().store(MemFlagsData::new(), zero, stack_pointer, 16);
+    f.ins().store(MemFlagsData::new(), zero, stack_pointer, 24);
 
     let mut signature = Signature::new(CallConv::SystemV);
     signature.params.push(AbiParam::new(I64));
@@ -400,9 +408,13 @@ fn create_foo_fn(module: &mut ObjectModule, ctx: &mut Context, fbx: &mut Functio
     f.ins().call(func_ref, &[stack_pointer]);
 
     f.ins().return_(&[]);
-    f.finalize();
+    f.finalize(module.isa().frontend_config());
 }
-fn create_small_struct_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
+fn create_small_struct_fn(
+    ctx: &mut Context,
+    fbx: &mut FunctionBuilderContext,
+    frontend_config: TargetFrontendConfig,
+) {
     ctx.func.signature.params = vec![AbiParam::new(I64)];
     ctx.func.signature.returns = vec![AbiParam::new(I64), AbiParam::new(I64)];
 
@@ -425,13 +437,17 @@ fn create_small_struct_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
     // let zero = f.ins().iconst(types::I64, 0);
     // let size_of_foo = 4;
 
-    // f.ins().store(MemFlags::new(), sixty, stack_pointer, 0);
+    // f.ins().store(MemFlagsData::new(), sixty, stack_pointer, 0);
 
     f.ins().return_(&[value_a_combined, b]);
-    f.finalize();
+    f.finalize(frontend_config);
 }
 
-fn sum_from_foo_ptr_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
+fn sum_from_foo_ptr_fn(
+    ctx: &mut Context,
+    fbx: &mut FunctionBuilderContext,
+    frontend_config: TargetFrontendConfig,
+) {
     ctx.func.signature.params = vec![AbiParam::new(I64)];
     ctx.func.signature.returns = vec![AbiParam::new(I64)];
     let mut f = FunctionBuilder::new(&mut ctx.func, fbx);
@@ -441,11 +457,11 @@ fn sum_from_foo_ptr_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
     f.switch_to_block(entry_block);
     f.seal_block(entry_block);
     let foo_ptr = f.block_params(entry_block)[0];
-    let foo_a = f.ins().load(I32, MemFlags::new(), foo_ptr, 0);
-    let foo_b = f.ins().load(I32, MemFlags::new(), foo_ptr, 4);
-    let foo_c = f.ins().load(I32, MemFlags::new(), foo_ptr, 8);
-    let foo_d = f.ins().load(I64, MemFlags::new(), foo_ptr, 16);
-    let foo_e = f.ins().load(I64, MemFlags::new(), foo_ptr, 24);
+    let foo_a = f.ins().load(I32, MemFlagsData::new(), foo_ptr, 0);
+    let foo_b = f.ins().load(I32, MemFlagsData::new(), foo_ptr, 4);
+    let foo_c = f.ins().load(I32, MemFlagsData::new(), foo_ptr, 8);
+    let foo_d = f.ins().load(I64, MemFlagsData::new(), foo_ptr, 16);
+    let foo_e = f.ins().load(I64, MemFlagsData::new(), foo_ptr, 24);
 
     let sum = f.ins().iadd(foo_a, foo_b);
     let sum = f.ins().iadd(foo_c, sum);
@@ -455,10 +471,14 @@ fn sum_from_foo_ptr_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
 
     let ret = sum;
     f.ins().return_(&[ret]);
-    f.finalize();
+    f.finalize(frontend_config);
 }
 
-fn sum_the_foo_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
+fn sum_the_foo_fn(
+    ctx: &mut Context,
+    fbx: &mut FunctionBuilderContext,
+    frontend_config: TargetFrontendConfig,
+) {
     ctx.func.signature.params = vec![];
     ctx.func.signature.returns = vec![AbiParam::new(I64)];
     let mut f = FunctionBuilder::new(&mut ctx.func, fbx);
@@ -473,11 +493,11 @@ fn sum_the_foo_fn(ctx: &mut Context, fbx: &mut FunctionBuilderContext) {
 
     // let arg0 = f.block_params(entry_block)[0];
     // let arg1 = f.block_params(entry_block)[1];
-    let ptr_deref = f.ins().load(I64, MemFlags::new(), foo_ptr, 0);
-    // let ret = f.ins().load(I64, MemFlags::new(), ptr_deref, 0);
+    let ptr_deref = f.ins().load(I64, MemFlagsData::new(), foo_ptr, 0);
+    // let ret = f.ins().load(I64, MemFlagsData::new(), ptr_deref, 0);
     let ret = ptr_deref;
     f.ins().return_(&[ret]);
-    f.finalize();
+    f.finalize(frontend_config);
 }
 
 fn anonymous_fn_builder(
@@ -502,7 +522,7 @@ fn anonymous_fn_builder(
         let fn_id = module
             .declare_anonymous_function(&f.func.signature)
             .unwrap();
-        f.finalize();
+        f.finalize(module.isa().frontend_config());
         // let signature = Signature::new(CallConv::SystemV);
 
         module.define_function(fn_id, ctx);
@@ -525,7 +545,7 @@ fn anonymous_fn_builder(
         let inst = f.ins().call(func_ref, &[val]);
         let val = f.inst_results(inst)[0];
         f.ins().return_(&[val]);
-        f.finalize();
+        f.finalize(module.isa().frontend_config());
     }
 }
 fn recursive_fn_builder(
@@ -569,7 +589,7 @@ fn recursive_fn_builder(
     f.ins().return_(&[val]);
     f.seal_block(else_block);
     f.seal_block(entry_block);
-    f.finalize();
+    f.finalize(module.isa().frontend_config());
 
     module.define_function(func_id, ctx);
     module.clear_context(ctx);
@@ -606,8 +626,8 @@ fn build_main_fn(module: &mut ObjectModule, ctx: &mut Context, fbx: &mut Functio
     let inst = f.ins().call(func_ref, &[foo_ptr]);
     let sum = f.inst_results(inst)[0];
 
-    // let b = f.ins().load(I32, MemFlags::new(), foo_ptr, 4); // foo.b
+    // let b = f.ins().load(I32, MemFlagsData::new(), foo_ptr, 4); // foo.b
     let b = f.ins().ireduce(I32, sum);
     f.ins().return_(&[b]);
-    f.finalize();
+    f.finalize(module.isa().frontend_config());
 }

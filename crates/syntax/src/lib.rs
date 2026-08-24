@@ -1,5 +1,5 @@
-use mantis_parser::token::{tokenize, Token, Span};
-use mantis_parser::ast::{self, Program, Declaration, Expr, TypeExpr, Statement, BlockItem};
+use mantis_parser::ast::{self, BlockItem, Declaration, Expr, Program, Statement, TypeExpr};
+use mantis_parser::token::{tokenize, Span, Token};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -42,19 +42,19 @@ impl HighlightCategory {
 
     pub fn ansi_color(&self, text: &str) -> String {
         match self {
-            HighlightCategory::Keyword => format!("\x1b[35;1m{}\x1b[0m", text),      // Magenta bold
-            HighlightCategory::Function => format!("\x1b[34;1m{}\x1b[0m", text),     // Blue bold
-            HighlightCategory::Type => format!("\x1b[33;1m{}\x1b[0m", text),         // Yellow bold
-            HighlightCategory::Variable => format!("\x1b[37m{}\x1b[0m", text),       // White
-            HighlightCategory::Parameter => format!("\x1b[36m{}\x1b[0m", text),      // Cyan
-            HighlightCategory::Field => format!("\x1b[36;1m{}\x1b[0m", text),       // Cyan bold
-            HighlightCategory::String => format!("\x1b[32m{}\x1b[0m", text),         // Green
-            HighlightCategory::Number => format!("\x1b[33m{}\x1b[0m", text),         // Yellow
-            HighlightCategory::Bool => format!("\x1b[35m{}\x1b[0m", text),           // Magenta
-            HighlightCategory::Comment => format!("\x1b[90;3m{}\x1b[0m", text),      // Bright black italic
-            HighlightCategory::Operator => format!("\x1b[31m{}\x1b[0m", text),        // Red
-            HighlightCategory::Punctuation => format!("\x1b[90m{}\x1b[0m", text),     // Bright black
-            HighlightCategory::Macro => format!("\x1b[32;1m{}\x1b[0m", text),        // Green bold
+            HighlightCategory::Keyword => format!("\x1b[35;1m{}\x1b[0m", text), // Magenta bold
+            HighlightCategory::Function => format!("\x1b[34;1m{}\x1b[0m", text), // Blue bold
+            HighlightCategory::Type => format!("\x1b[33;1m{}\x1b[0m", text),    // Yellow bold
+            HighlightCategory::Variable => format!("\x1b[37m{}\x1b[0m", text),  // White
+            HighlightCategory::Parameter => format!("\x1b[36m{}\x1b[0m", text), // Cyan
+            HighlightCategory::Field => format!("\x1b[36;1m{}\x1b[0m", text),   // Cyan bold
+            HighlightCategory::String => format!("\x1b[32m{}\x1b[0m", text),    // Green
+            HighlightCategory::Number => format!("\x1b[33m{}\x1b[0m", text),    // Yellow
+            HighlightCategory::Bool => format!("\x1b[35m{}\x1b[0m", text),      // Magenta
+            HighlightCategory::Comment => format!("\x1b[90;3m{}\x1b[0m", text), // Bright black italic
+            HighlightCategory::Operator => format!("\x1b[31m{}\x1b[0m", text),  // Red
+            HighlightCategory::Punctuation => format!("\x1b[90m{}\x1b[0m", text), // Bright black
+            HighlightCategory::Macro => format!("\x1b[32;1m{}\x1b[0m", text),   // Green bold
             HighlightCategory::Default => text.to_string(),
         }
     }
@@ -98,12 +98,33 @@ pub fn highlight(source: &str) -> Vec<HighlightSpan> {
     for spanned in tokens {
         let text = source[spanned.span.start..spanned.span.end].to_string();
         let cat = match spanned.token {
-            Token::Fn | Token::Let | Token::Mut | Token::Return | Token::If | Token::Elif | Token::Else
-            | Token::Loop | Token::Break | Token::Continue | Token::Match | Token::As | Token::Type
-            | Token::Struct | Token::Enum | Token::Trait | Token::Impl | Token::For | Token::Extern
-            | Token::Import | Token::Use | Token::Where | Token::Async | Token::Await | Token::Yield => {
-                HighlightCategory::Keyword
-            }
+            Token::Fn
+            | Token::Let
+            | Token::Mut
+            | Token::Return
+            | Token::If
+            | Token::Elif
+            | Token::Else
+            | Token::Loop
+            | Token::Break
+            | Token::Continue
+            | Token::Match
+            | Token::As
+            | Token::Type
+            | Token::Struct
+            | Token::Enum
+            | Token::Trait
+            | Token::Impl
+            | Token::For
+            | Token::Extern
+            | Token::Import
+            | Token::Use
+            | Token::Where
+            | Token::Async
+            | Token::Await
+            | Token::Yield
+            | Token::Static
+            | Token::Const => HighlightCategory::Keyword,
             Token::Bool(_) => HighlightCategory::Bool,
             Token::Int(_) | Token::Float(_) => HighlightCategory::Number,
             Token::String(_) | Token::Char(_) => HighlightCategory::String,
@@ -119,12 +140,38 @@ pub fn highlight(source: &str) -> Vec<HighlightSpan> {
                     HighlightCategory::Variable
                 }
             }
-            Token::EqEq | Token::NotEq | Token::Bang | Token::GtEq | Token::LtEq | Token::Shl | Token::Shr
-            | Token::Arrow | Token::Eq | Token::Plus | Token::Minus | Token::Star | Token::Slash | Token::Percent
-            | Token::Gt | Token::Lt | Token::At | Token::AtAssign | Token::Question | Token::Amp | Token::Pipe
+            Token::EqEq
+            | Token::NotEq
+            | Token::Bang
+            | Token::GtEq
+            | Token::LtEq
+            | Token::Shl
+            | Token::Shr
+            | Token::Arrow
+            | Token::Eq
+            | Token::Plus
+            | Token::Minus
+            | Token::Star
+            | Token::Slash
+            | Token::Percent
+            | Token::Gt
+            | Token::Lt
+            | Token::At
+            | Token::AtAssign
+            | Token::Question
+            | Token::Amp
+            | Token::Pipe
             | Token::Caret => HighlightCategory::Operator,
-            Token::LParen | Token::RParen | Token::LBrace | Token::RBrace | Token::LBracket | Token::RBracket
-            | Token::Dot | Token::Comma | Token::Colon | Token::Semi => HighlightCategory::Punctuation,
+            Token::LParen
+            | Token::RParen
+            | Token::LBrace
+            | Token::RBrace
+            | Token::LBracket
+            | Token::RBracket
+            | Token::Dot
+            | Token::Comma
+            | Token::Colon
+            | Token::Semi => HighlightCategory::Punctuation,
             Token::Comment => HighlightCategory::Comment,
         };
 
@@ -191,8 +238,21 @@ fn escape_html(input: &str) -> String {
 fn is_builtin_type(name: &str) -> bool {
     matches!(
         name,
-        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
-            | "f32" | "f64" | "bool" | "char" | "String" | "str" | "void" | "Self"
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "char"
+            | "String"
+            | "str"
+            | "void"
+            | "Self"
     )
 }
 
@@ -249,7 +309,9 @@ fn visit_block(block: &ast::Block, table: &mut HashMap<usize, HighlightCategory>
     for item in &block.items {
         match item {
             BlockItem::Statement(stmt) => match stmt {
-                Statement::Let { name, ty, value, .. } => {
+                Statement::Let {
+                    name, ty, value, ..
+                } => {
                     table.insert(name.span.start, HighlightCategory::Variable);
                     if let Some(t) = ty {
                         mark_type_expr(t, HighlightCategory::Type, table);
@@ -329,7 +391,11 @@ fn visit_expr(expr: &Expr, table: &mut HashMap<usize, HighlightCategory>) {
     }
 }
 
-fn mark_type_expr(ty: &TypeExpr, category: HighlightCategory, table: &mut HashMap<usize, HighlightCategory>) {
+fn mark_type_expr(
+    ty: &TypeExpr,
+    category: HighlightCategory,
+    table: &mut HashMap<usize, HighlightCategory>,
+) {
     match ty {
         TypeExpr::Named(id) => {
             table.insert(id.span.start, category);

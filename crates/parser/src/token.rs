@@ -100,6 +100,10 @@ pub enum Token {
     Await,
     #[token("yield")]
     Yield,
+    #[token("static")]
+    Static,
+    #[token("const")]
+    Const,
 
     // ── Literals ──────────────────────────────────────────────
     #[token("true", |_| true)]
@@ -216,7 +220,7 @@ pub enum Token {
     Semi,
 
     // ── Comments (skipped) ───────────────────────────────────
-    #[regex(r"//[^\n]*", logos::skip)]
+    #[regex(r"//[^\n]*", logos::skip, allow_greedy = true)]
     #[regex(r"/\*([^*]|\*[^/])*\*/", logos::skip)]
     Comment,
 }

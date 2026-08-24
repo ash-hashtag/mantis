@@ -114,9 +114,9 @@ impl MantisLanguageServer {
 
         // Standard keywords
         let keywords = vec![
-            "fn", "let", "mut", "return", "if", "elif", "else", "loop", "break",
-            "continue", "match", "type", "struct", "enum", "trait", "impl",
-            "extern", "import", "use", "async", "await", "yield",
+            "fn", "let", "mut", "return", "if", "elif", "else", "loop", "break", "continue",
+            "match", "type", "struct", "enum", "trait", "impl", "extern", "import", "use", "async",
+            "await", "yield", "static", "const",
         ];
         for kw in keywords {
             items.push(CompletionItem {
@@ -128,7 +128,10 @@ impl MantisLanguageServer {
         }
 
         // Built-in types
-        let types = vec!["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "bool", "char", "String"];
+        let types = vec![
+            "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "bool", "char",
+            "String",
+        ];
         for ty in types {
             items.push(CompletionItem {
                 label: ty.to_string(),
@@ -163,6 +166,14 @@ impl MantisLanguageServer {
                                 });
                             }
                         }
+                        Declaration::Static(s) => {
+                            items.push(CompletionItem {
+                                label: s.name.name.to_string(),
+                                kind: Some(14),
+                                detail: Some("Static constant".to_string()),
+                                documentation: None,
+                            });
+                        }
                         _ => {}
                     }
                 }
@@ -183,7 +194,12 @@ impl MantisLanguageServer {
             for decl in &prog.declarations {
                 match decl {
                     Declaration::Function(f) => {
-                        let name = f.name.as_ref().and_then(|n| n.as_name()).unwrap_or("fn").to_string();
+                        let name = f
+                            .name
+                            .as_ref()
+                            .and_then(|n| n.as_name())
+                            .unwrap_or("fn")
+                            .to_string();
                         let range = span_to_range(text, f.span);
                         symbols.push(DocumentSymbol {
                             name,
@@ -211,6 +227,23 @@ impl MantisLanguageServer {
                             name,
                             detail: Some("Trait".to_string()),
                             kind: 5, // Class
+                            range: range.clone(),
+                            selection_range: range,
+                        });
+                    }
+                    Declaration::Static(s) => {
+                        let range = span_to_range(text, s.span);
+                        symbols.push(DocumentSymbol {
+                            name: s.name.name.to_string(),
+                            detail: Some(
+                                if s.is_const {
+                                    "Static constant"
+                                } else {
+                                    "Static"
+                                }
+                                .to_string(),
+                            ),
+                            kind: 14,
                             range: range.clone(),
                             selection_range: range,
                         });
@@ -340,6 +373,8 @@ mod tests {
         let source = "fn main() { let x = 10; let f = [@mut x] () i64 { return x; }; }";
         let diags = compute_diagnostics(source);
         assert!(!diags.is_empty());
-        assert!(diags[0].message.contains("cannot capture immutable variable"));
+        assert!(diags[0]
+            .message
+            .contains("cannot capture immutable variable"));
     }
 }

@@ -104,7 +104,7 @@ pub fn compile(functions: RcVec<Function>) -> anyhow::Result<Vec<u8>> {
                 bcx.ins().return_(&[]);
 
                 bcx.seal_all_blocks();
-                bcx.finalize();
+                bcx.finalize(module.isa().frontend_config());
             }
 
             module.define_function(local_func_id, &mut ctx)?;
@@ -118,7 +118,12 @@ pub fn compile(functions: RcVec<Function>) -> anyhow::Result<Vec<u8>> {
                 },
             );
         } else {
-            function.declare(&mut ctx, &mut fbx, &mut ms_ctx)?;
+            function.declare(
+                &mut ctx,
+                &mut fbx,
+                module.isa().frontend_config(),
+                &mut ms_ctx,
+            )?;
             let linkage = Linkage::Export;
 
             let func_id =

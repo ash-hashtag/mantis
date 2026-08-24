@@ -275,6 +275,19 @@ pub fn compile_function(
 
     let block_params = f.block_params(entry_block).to_vec();
 
+    // Make module statics participate in ordinary name/method resolution while
+    // retaining their object-file address (rather than copying them locally).
+    for (global_name, global) in ms_ctx.globals.clone() {
+        let data_ref = module.declare_data_in_func(global.data_id, f.func);
+        let ptr = f.ins().symbol_value(types::I64, data_ref);
+        let var = f.declare_var(types::I64);
+        f.def_var(var, ptr);
+        ms_ctx.var_scopes.add_variable(
+            global_name,
+            MsVar::new(global.ty_id, var, None, !global.is_const, true),
+        );
+    }
+
     let mut fn_args_iter = block_params.iter();
     if returns_struct_or_enum {
         let return_ty_id = return_ty.unwrap();
@@ -327,7 +340,7 @@ pub fn compile_function(
     }
     f.seal_block(entry_block);
 
-    f.finalize();
+    f.finalize(module.isa().frontend_config());
     module.define_function(func_id, ctx).unwrap();
     ctx.clear();
 
@@ -446,7 +459,7 @@ pub fn compile_assignment(
             fbx.def_var(variable.c_var, value);
             if let Some(ss) = variable.stack_slot {
                 let ptr = fbx.ins().stack_addr(types::I64, ss, 0);
-                fbx.ins().store(MemFlags::new(), value, ptr, 0);
+                fbx.ins().store(MemFlagsData::new(), value, ptr, 0);
             }
         }
         MsType::Struct(sty) => {
@@ -461,6 +474,14 @@ pub fn compile_assignment(
             if let Some(ss) = variable.stack_slot {
                 let dest_ptr = fbx.ins().stack_addr(types::I64, ss, 0);
                 sty.copy(dest_ptr, src, fbx, module, ms_ctx);
+            }
+        }
+        MsType::Ref(_, _) | MsType::Function(_) => {
+            let value = rhs.value(fbx, ms_ctx);
+            fbx.def_var(variable.c_var, value);
+            if let Some(ss) = variable.stack_slot {
+                let ptr = fbx.ins().stack_addr(types::I64, ss, 0);
+                fbx.ins().store(MemFlagsData::new(), value, ptr, 0);
             }
         }
         _ => todo!(),
@@ -483,7 +504,7 @@ pub fn compile_assignment_on_pointers(
         MsType::Native(nty) => {
             let value = rhs.value(fbx, ms_ctx);
             let ptr = lhs.address(fbx, ms_ctx);
-            fbx.ins().store(MemFlags::new(), value, ptr, 0);
+            fbx.ins().store(MemFlagsData::new(), value, ptr, 0);
         }
         MsType::Struct(sty) => {
             let dest = lhs.address(fbx, ms_ctx);
@@ -505,7 +526,7 @@ pub fn compile_assignment_on_pointers(
         MsType::Ref(_, _) | MsType::Function(_) => {
             let ptr = lhs.address(fbx, ms_ctx);
             let value = rhs.value(fbx, ms_ctx);
-            fbx.ins().store(MemFlags::new(), value, ptr, 0);
+            fbx.ins().store(MemFlagsData::new(), value, ptr, 0);
         }
         _ => todo!(),
     }
@@ -849,7 +870,7 @@ pub fn compile_node(
                     MsType::Native(nty) => {
                         let val = fbx.ins().load(
                             nty.to_cl_type().unwrap(),
-                            MemFlags::new(),
+                            MemFlagsData::new(),
                             ptr_value,
                             0,
                         );
@@ -862,7 +883,7 @@ pub fn compile_node(
                         MsType::Native(nty) => {
                             let val = fbx.ins().load(
                                 nty.to_cl_type().unwrap(),
-                                MemFlags::new(),
+                                MemFlagsData::new(),
                                 ptr_value,
                                 0,
                             );
@@ -1049,7 +1070,8 @@ pub fn compile_node(
                             if let Some(f) = sty.get_field("len") {
                                 let ptr = obj_res.value(fbx, ms_ctx);
                                 let addr = fbx.ins().iadd_imm(ptr, f.offset as i64);
-                                let len_val = fbx.ins().load(types::I64, MemFlags::new(), addr, 0);
+                                let len_val =
+                                    fbx.ins().load(types::I64, MemFlagsData::new(), addr, 0);
                                 let i64_ty = ms_ctx
                                     .current_module
                                     .type_registry
@@ -1215,7 +1237,15 @@ pub fn compile_node(
             let fn_type_expr = expr_to_type_expr(callee);
 
             let mut method_on_variable: Option<MsVar> = None;
-            let maybe_var = if let MsTokenType::Nested(root, _) = &fn_type_expr {
+            let method_path = match &fn_type_expr {
+                MsTokenType::Nested(root, child) => Some((root.as_ref(), child.as_ref())),
+                MsTokenType::Generic(base, _) => match base.as_ref() {
+                    MsTokenType::Nested(root, child) => Some((root.as_ref(), child.as_ref())),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let maybe_var = if let Some((root, _)) = method_path {
                 if let Some(name) = root.as_name() {
                     ms_ctx.var_scopes.find_variable(name).cloned()
                 } else {
@@ -1226,9 +1256,7 @@ pub fn compile_node(
             };
 
             let resolved_callee = if let Some(var) = maybe_var {
-                let MsTokenType::Nested(_, child) = &fn_type_expr else {
-                    unreachable!()
-                };
+                let (_, child) = method_path.expect("method path");
                 let method_name = child.as_name().unwrap();
                 let mut current_ty_id = var.ty_id;
                 let mut type_entry = ms_ctx
@@ -1455,7 +1483,9 @@ pub fn compile_node(
                         if let MsType::Struct(sty) = ty {
                             let field = sty.get_field("pointer").unwrap();
                             let field_addr = fbx.ins().iadd_imm(val, field.offset as i64);
-                            val = fbx.ins().load(types::I64, MemFlags::new(), field_addr, 0);
+                            val = fbx
+                                .ins()
+                                .load(types::I64, MemFlagsData::new(), field_addr, 0);
                         }
                     }
                 }
@@ -1483,6 +1513,10 @@ pub fn compile_node(
             let var_name = ident.name.as_str();
             if let Some(var) = ms_ctx.var_scopes.find_variable(var_name) {
                 return Some(NodeResult::Var(var.clone()));
+            } else if let Some(global) = ms_ctx.globals.get(var_name).copied() {
+                let data_ref = module.declare_data_in_func(global.data_id, fbx.func);
+                let ptr = fbx.ins().symbol_value(types::I64, data_ref);
+                return Some(NodeResult::Val(MsVal::new(global.ty_id, ptr)));
             } else if let Some(ty) = ms_ctx.current_module.type_registry.get_from_str(var_name) {
                 return Some(NodeResult::TypeRef(ty.clone()));
             } else if let Some(_template) =
@@ -1624,7 +1658,7 @@ pub fn compile_node(
                 module.define_data(data_id, &data_desc).unwrap();
                 let gl_value = module.declare_data_in_func(data_id, fbx.func);
                 fbx.ins()
-                    .global_value(ty_i64.ty.to_cl_type().unwrap(), gl_value)
+                    .symbol_value(ty_i64.ty.to_cl_type().unwrap(), gl_value)
             };
 
             sty.set_field(
@@ -1647,15 +1681,14 @@ pub fn compile_node(
             return Some(NodeResult::Val(MsVal::new(ty.id, struct_ptr)));
         }
         Expr::StructInit { ty, fields, span } => {
-            let ty_name = ty.as_name().unwrap();
             let ty = ms_ctx
                 .current_module
-                .type_registry
-                .get_from_str(ty_name)
-                .expect(&format!("couldn't find type_name {ty_name}"));
+                .resolve(ty)
+                .and_then(|resolved| resolved.ty())
+                .unwrap_or_else(|| panic!("couldn't resolve struct type {:?} at {}", ty, span));
 
             let MsType::Struct(struct_type) = ty.ty else {
-                panic!("undefined struct {}", ty_name);
+                panic!("expected a struct type at {}", span);
             };
 
             let stack_slot = fbx.create_sized_stack_slot(StackSlotData::new(
@@ -1679,7 +1712,11 @@ pub fn compile_node(
         Expr::ArrayInit { elements, span: _ } => {
             return compile_array_init(elements, None, module, fbx, ms_ctx);
         }
-        Expr::Lambda { captures, decl, span } => {
+        Expr::Lambda {
+            captures,
+            decl,
+            span,
+        } => {
             let lambda_name = format!("_lambda_{}", random_string(8));
             let mut lambda_decl = *decl.clone();
             lambda_decl.name = Some(mantis_parser::ast::TypeExpr::Named(
@@ -1687,12 +1724,17 @@ pub fn compile_node(
             ));
 
             for cap in captures {
-                let exists = lambda_decl.params.iter().any(|p| p.name.name == cap.name.name);
+                let exists = lambda_decl
+                    .params
+                    .iter()
+                    .any(|p| p.name.name == cap.name.name);
                 if !exists {
                     lambda_decl.params.push(mantis_parser::ast::Param {
                         name: cap.name.clone(),
                         mutable: cap.kind == mantis_parser::ast::CaptureKind::MutRef,
-                        ty: mantis_parser::ast::TypeExpr::Named(mantis_parser::ast::Ident::new("i64", cap.span)),
+                        ty: mantis_parser::ast::TypeExpr::Named(mantis_parser::ast::Ident::new(
+                            "i64", cap.span,
+                        )),
                         span: cap.span,
                     });
                 }
@@ -2237,7 +2279,7 @@ pub fn compile_array_init(
         let val = node.value(fbx, ms_ctx);
         let offset = (idx * elem_size) as i64;
         fbx.ins()
-            .store(MemFlags::new(), val, base_ptr, offset as i32);
+            .store(MemFlagsData::new(), val, base_ptr, offset as i32);
     }
 
     let ref_ty = MsType::Ref(Box::new(arr_inner_ty.clone()), true);
@@ -2342,7 +2384,7 @@ pub fn compile_statements(
                     0,
                 ));
                 let ptr = fbx.ins().stack_addr(types::I64, stack_slot, 0);
-                fbx.ins().store(MemFlags::new(), value, ptr, 0);
+                fbx.ins().store(MemFlagsData::new(), value, ptr, 0);
 
                 let mut variable =
                     MsVar::new(node_value.ty(), variable, Some(stack_slot), *mutable, false);
@@ -2729,7 +2771,7 @@ pub fn compile_match_block(
                                 let data_ptr = fbx.ins().iadd_imm(scrutinee_val, 8); // Offset of data
                                 let val = fbx.ins().load(
                                     variant_ty.ty.to_cl_type().unwrap(),
-                                    MemFlags::new(),
+                                    MemFlagsData::new(),
                                     data_ptr,
                                     0,
                                 );
@@ -2787,10 +2829,14 @@ fn compile_comparison_for_match(
                     let ptr_field_offset = 0;
 
                     let l_len_addr = fbx.ins().iadd_imm(lhs, len_field_offset);
-                    let l_len = fbx.ins().load(types::I64, MemFlags::new(), l_len_addr, 0);
+                    let l_len = fbx
+                        .ins()
+                        .load(types::I64, MemFlagsData::new(), l_len_addr, 0);
 
                     let r_len_addr = fbx.ins().iadd_imm(rhs, len_field_offset);
-                    let r_len = fbx.ins().load(types::I64, MemFlags::new(), r_len_addr, 0);
+                    let r_len = fbx
+                        .ins()
+                        .load(types::I64, MemFlagsData::new(), r_len_addr, 0);
 
                     let len_eq = fbx.ins().icmp(IntCC::Equal, l_len, r_len);
 
@@ -2798,9 +2844,13 @@ fn compile_comparison_for_match(
                     let memcmp_len = fbx.ins().select(len_eq, l_len, zero);
 
                     let l_ptr_addr = fbx.ins().iadd_imm(lhs, ptr_field_offset);
-                    let l_ptr = fbx.ins().load(types::I64, MemFlags::new(), l_ptr_addr, 0);
+                    let l_ptr = fbx
+                        .ins()
+                        .load(types::I64, MemFlagsData::new(), l_ptr_addr, 0);
                     let r_ptr_addr = fbx.ins().iadd_imm(rhs, ptr_field_offset);
-                    let r_ptr = fbx.ins().load(types::I64, MemFlags::new(), r_ptr_addr, 0);
+                    let r_ptr = fbx
+                        .ins()
+                        .load(types::I64, MemFlagsData::new(), r_ptr_addr, 0);
 
                     let memcmp_func = ms_ctx
                         .current_module
@@ -3117,7 +3167,7 @@ pub fn infer_return_type_from_body(
 
     ms_ctx.var_scopes.exit_scope();
     temp_fbx.ins().return_(&[]);
-    temp_fbx.finalize();
+    temp_fbx.finalize(module.isa().frontend_config());
 
     inferred_id
 }
