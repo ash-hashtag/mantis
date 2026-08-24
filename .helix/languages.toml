@@ -1,0 +1,19 @@
+# Project-local Helix integration for Mantis.
+# The LSP uses the prebuilt binary for instant, reliable startup.
+# Rebuild it (with the grammar) via: ./scripts/install-helix-mantis.sh
+
+[[language]]
+name = "mantis"
+scope = "source.mantis"
+file-types = ["ms"]
+indent = { tab-width = 4, unit = "    " }
+comment-tokens = "//"
+language-servers = ["mantis-lsp"]
+grammar = "mantis"
+
+[language-server.mantis-lsp]
+command = "/home/ash/.cargo/target/release/mantis_lsp"
+
+[[grammar]]
+name = "mantis"
+source = { path = "/home/ash/Projects/mantis/tree-sitter-mantis" }

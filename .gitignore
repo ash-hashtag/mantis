@@ -2,3 +2,5 @@
 /build
 *.o
 main
+.pnpm-store/
+node_modules/

@@ -1,0 +1,17 @@
+{
+  "grammars": [
+    {
+      "name": "mantis",
+      "camelcase": "Mantis",
+      "scope": "source.mantis",
+      "path": ".",
+      "file-types": ["ms"],
+      "injection-regex": "mantis"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Tree-sitter grammar for Mantis"
+  }
+}
