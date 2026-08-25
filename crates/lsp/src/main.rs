@@ -53,6 +53,7 @@ fn main() -> io::Result<()> {
                         "capabilities": {
                             "textDocumentSync": 1,
                             "hoverProvider": true,
+                            "definitionProvider": true,
                             "completionProvider": { "resolveProvider": false },
                             "documentSymbolProvider": true
                         }
@@ -105,6 +106,24 @@ fn main() -> io::Result<()> {
                         "jsonrpc": "2.0",
                         "id": id,
                         "result": hover_res
+                    });
+                    send_response(&resp)?;
+                }
+            }
+            "textDocument/definition" => {
+                if let Some(params) = req.get("params") {
+                    let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
+                    let line = params["position"]["line"].as_u64().unwrap_or(0) as u32;
+                    let character = params["position"]["character"].as_u64().unwrap_or(0) as u32;
+                    let range = server.definition(uri, mantis_lsp::Position { line, character });
+                    let result = match range {
+                        Some(r) => json!({ "uri": uri, "range": r }),
+                        None => Value::Null,
+                    };
+                    let resp = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": result
                     });
                     send_response(&resp)?;
                 }
