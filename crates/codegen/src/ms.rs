@@ -67,14 +67,17 @@ impl MsContext {
         fbx: &mut FunctionBuilder,
         module: &mut ObjectModule,
     ) -> Inst {
-        let scope = self
-            .loop_scopes
-            .find_last_loop(name)
-            .expect("unidentified loop");
+        let var_scope_index = {
+            let scope = self
+                .loop_scopes
+                .find_last_loop(name)
+                .expect("unidentified loop");
+            scope.var_scope_index
+        };
 
-        drop_scopes_until_index(scope.var_scope_index, self, fbx, module);
+        drop_scopes_until_index(var_scope_index, self, fbx, module);
 
-        fbx.ins().jump(scope.exit_block, &[])
+        fbx.ins().jump(self.loop_scopes.find_last_loop(name).expect("unidentified loop").exit_block, &[])
     }
     pub fn continue_loop(
         &mut self,
@@ -82,13 +85,16 @@ impl MsContext {
         fbx: &mut FunctionBuilder,
         module: &mut ObjectModule,
     ) -> Inst {
-        let scope = self
-            .loop_scopes
-            .find_last_loop(name)
-            .expect("unidentified loop");
+        let (var_scope_index, entry_block) = {
+            let scope = self
+                .loop_scopes
+                .find_last_loop(name)
+                .expect("unidentified loop");
+            (scope.var_scope_index, scope.entry_block)
+        };
 
-        drop_scopes_until_index(scope.var_scope_index, self, fbx, module);
+        drop_scopes_until_index(var_scope_index, self, fbx, module);
 
-        fbx.ins().jump(scope.entry_block, &[])
+        fbx.ins().jump(entry_block, &[])
     }
 }

@@ -200,6 +200,15 @@ pub fn compile_function(
         let ty =
             if let (Some(ref trait_on_type), "self") = (&trait_on_type, param.name.name.as_str()) {
                 trait_on_type.on_type.clone()
+            } else if mentions_self(&param.ty) {
+                // Drop-style methods (`self @mut Self`) instantiated through the
+                // queue: Self is only ever passed by address.
+                let mut_ref = MsType::Ref(Box::new(MsType::Native(MsNativeType::I64)), true);
+                let id = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_or_add_type(mut_ref.clone());
+                crate::registries::types::MsTypeWithId { id, ty: mut_ref }
             } else {
                 ms_ctx
                     .current_module
@@ -432,10 +441,13 @@ pub fn compile_assignment(
     fbx: &mut FunctionBuilder,
     ms_ctx: &mut MsContext,
 ) {
-    let variable = ms_ctx
-        .var_scopes
-        .find_variable(lhs)
-        .expect(&format!("undeclared variable {lhs}"));
+    let variable = {
+        let v = ms_ctx
+            .var_scopes
+            .find_variable(lhs)
+            .expect(&format!("undeclared variable {lhs}"));
+        v.clone()
+    };
 
     if !variable.is_mutable {
         panic!("{lhs} is marked immutable");
@@ -463,10 +475,13 @@ pub fn compile_assignment(
             }
         }
         MsType::Struct(sty) => {
-            // TODO: drop the old struct
+            // Drop the old value before overwriting (RAII).
             let mut dropping_var = variable.clone();
             dropping_var.is_reference = false;
+            let dropped_ty_id = dropping_var.ty_id;
+            let had_stack_slot = dropping_var.stack_slot.is_some();
             drop_variable(&dropping_var, ms_ctx, fbx, module);
+            let _ = (dropped_ty_id, had_stack_slot);
             let dest = variable.value(fbx, ms_ctx);
             let src = rhs.value(fbx, ms_ctx);
             sty.copy(dest, src, fbx, module, ms_ctx);
@@ -1004,7 +1019,21 @@ pub fn compile_node(
                         }
                     }
                 }
-                if let Some(obj_res) = obj_node_res {
+                // `Type.method(...)` where Type is a generic template must not be
+                // treated as a receiver method call on the type's placeholder —
+                // it is handled further below via trait_generic_templates.
+                let object_is_type_template = match &**object {
+                    Expr::Ident(id) => {
+                        ms_ctx
+                            .current_module
+                            .type_templates
+                            .registry
+                            .contains_key(id.name.as_str())
+                            && ms_ctx.var_scopes.find_variable(&id.name).is_none()
+                    }
+                    _ => false,
+                };
+                if let Some(obj_res) = obj_node_res.filter(|_| !object_is_type_template) {
                     let obj_ty_id = obj_res.ty();
                     let obj_ty = ms_ctx
                         .current_module
@@ -1084,6 +1113,13 @@ pub fn compile_node(
                     }
 
                     let search_ty_id = obj_ty_id;
+                    // First touch of this instantiation: materialize all its
+                    // methods (incl. Drop) so lookups are plain registry hits.
+                    if ms_ctx.current_module.type_fn_registry.map.get(&search_ty_id).is_none() {
+                        crate::backend::drop_gen::ensure_type_methods(
+                            search_ty_id, ms_ctx, module,
+                        );
+                    }
                     let maybe_func = ms_ctx
                         .current_module
                         .type_fn_registry
@@ -1199,6 +1235,8 @@ pub fn compile_node(
                             call_arg_values.push(a.value(fbx, ms_ctx));
                         }
 
+                        eprintln!("DBG-SITE-A funcid={} nvals={} rets={:?} sret={}",
+                            func.func_id.as_u32(), call_arg_values.len(), func.rets.map(|r| r.0), returns_a_struct_ptr.is_some());
                         let func_ref = module.declare_func_in_func(func.func_id, fbx.func);
                         let inst = fbx.ins().call(func_ref, &call_arg_values);
                         let result = fbx.inst_results(inst);
@@ -1251,6 +1289,57 @@ pub fn compile_node(
                 } else {
                     None
                 }
+            } else {
+                None
+            };
+
+            // Static method on a generic type: `Type.method(args)` where Type is
+            // a generic template (e.g. `Box.new(42)`, `Vec.with_capacity[u8](n)`).
+            // Instantiate the method with generics inferred from the call args.
+            let template_method = if maybe_var.is_none() {
+                method_path.as_ref().and_then(|(root, child)| {
+                    let tname = root.as_name()?;
+                    if !ms_ctx
+                        .current_module
+                        .type_templates
+                        .registry
+                        .contains_key(tname)
+                    {
+                        return None;
+                    }
+                    let templates = ms_ctx
+                        .current_module
+                        .trait_generic_templates
+                        .registry
+                        .get(tname)?;
+                    let tmpl = templates
+                        .iter()
+                        .find(|t| {
+                            t.decl.name.as_ref().and_then(|n| n.as_name()) == child.as_name()
+                        })?
+                        .clone();
+                    // Prefer explicit turbofish generics (`Vec.with_capacity[u8]`),
+                    // fall back to inferring from argument types.
+                    let real_types = match &fn_type_expr {
+                        MsTokenType::Generic(_, gens) => gens
+                            .iter()
+                            .map(|g| ms_ctx.current_module.resolve(g))
+                            .collect::<Option<Vec<_>>>()
+                            .filter(|v: &Vec<MsResolved>| !v.is_empty()),
+                        _ => None,
+                    }
+                    .unwrap_or_else(|| {
+                        let arg_tys: Vec<_> = arg_results.iter().map(|a| a.ty()).collect();
+                        infer_generics_from_args(&tmpl, &arg_tys, ms_ctx)
+                    });
+                    Some(instantiate_generic_function(
+                        tmpl,
+                        real_types,
+                        &fn_type_expr,
+                        ms_ctx,
+                        module,
+                    ))
+                })
             } else {
                 None
             };
@@ -1349,10 +1438,14 @@ pub fn compile_node(
                     }
                 }
 
-                ms_ctx
-                    .current_module
-                    .resolve(&fn_type_expr)
-                    .expect(&format!("couldn't find function {:?}", fn_type_expr))
+                if let Some(func) = template_method {
+                    MsResolved::Function(func)
+                } else {
+                    ms_ctx
+                        .current_module
+                        .resolve(&fn_type_expr)
+                        .expect(&format!("couldn't find function {:?}", fn_type_expr))
+                }
             };
 
             let func = match resolved_callee {
@@ -2384,7 +2477,19 @@ pub fn compile_statements(
                     0,
                 ));
                 let ptr = fbx.ins().stack_addr(types::I64, stack_slot, 0);
-                fbx.ins().store(MemFlagsData::new(), value, ptr, 0);
+                match &ty {
+                    // Struct values flow as addresses (e.g. sret results from
+                    // constructors): copy the contents, don't store the pointer.
+                    MsType::Struct(sty) => {
+                        sty.copy(ptr, value, fbx, module, ms_ctx);
+                    }
+                    MsType::Enum(eny) => {
+                        eny.copy(ptr, value, fbx, module, ms_ctx);
+                    }
+                    _ => {
+                        fbx.ins().store(MemFlagsData::new(), value, ptr, 0);
+                    }
+                }
 
                 let mut variable =
                     MsVar::new(node_value.ty(), variable, Some(stack_slot), *mutable, false);
@@ -2423,6 +2528,11 @@ pub fn compile_statements(
                                 }
                             }
                             MsType::Struct(sty) => {
+                                // Move semantics: if returning a named local,
+                                // its ownership transfers — RAII must skip it.
+                                if let NodeResult::Var(moved_var) = &var {
+                                    ms_ctx.var_scopes.mark_moved_by_var(moved_var);
+                                }
                                 let src = var.value(fbx, ms_ctx);
                                 let dest = ms_ctx.var_scopes.find_variable("return").unwrap().c_var;
                                 let dest = fbx.use_var(dest);
@@ -2503,7 +2613,7 @@ pub fn compile_loop(
 
     ms_ctx.loop_scopes.end_loop(loop_name, fbx);
     let scope = ms_ctx.var_scopes.exit_scope().unwrap();
-    drop_scope(&scope, &ms_ctx, fbx, module);
+    drop_scope(&scope, ms_ctx, fbx, module);
 }
 
 pub struct IfElseChainBuilder {
@@ -2888,6 +2998,17 @@ pub fn check_if_its_enum_unwrap(
         }
         _ => None,
     };
+}
+
+/// True when a type expression references `Self` (possibly under refs/generics).
+fn mentions_self(ty: &MsTokenType) -> bool {
+    match ty {
+        MsTokenType::Named(id) => id.name == "Self",
+        MsTokenType::Ref(inner, _) => mentions_self(inner),
+        MsTokenType::Generic(base, _) => mentions_self(base),
+        MsTokenType::Nested(a, b) => mentions_self(a) || mentions_self(b),
+        _ => false,
+    }
 }
 
 pub fn instantiate_generic_function(

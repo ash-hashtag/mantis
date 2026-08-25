@@ -1,111 +1,46 @@
-fn malloc(size i64) i64 extern ;
-fn free(ptr i64) extern ;
-fn write(fd i64, data_ptr i64, count i64) i64 extern ;
-fn memcpy(dest i64, src i64, size i64) i64 extern ;
+// Dynamic arrays and heap values WITHOUT manual pointer juggling.
+//
+// This used to demonstrate hand-rolled malloc/free arrays. With
+// std::Vec the allocator handles growth AND cleanup (RAII) for you.
 
-type Array[T] = struct {
-	ptr @T,
-	size u64
+use std;
+
+fn write(fd i64, buf i64, len i64) i64 extern;
+
+fn main() i32 {
+    // A growable vector of bytes — no malloc/free in sight.
+    let mut v = Vec.with_capacity[u8](8);
+    v.push(104 as u8); // 'h'
+    v.push(101 as u8); // 'e'
+    v.push(108 as u8); // 'l'
+    v.push(108 as u8); // 'l'
+    v.push(111 as u8); // 'o'
+
+    write(1, v.ptr as i64, v.len() as i64);
+    write(1, "\n".pointer, 1);
+
+    let last = v.pop();        // pops 'o'
+    v.push(33 as u8);          // '!'
+
+    write(1, v.ptr as i64, v.len() as i64);
+    write(1, "\n".pointer, 1);
+
+    let n = v.len();
+    // `v` is freed automatically when main returns (RAII).
+
+    if last == 111 as u8 {
+        if n == 5 {
+            return 0;
+        }
+    }
+    return 1;
 }
 
-fn array_new[T](size u64) @Array[T] {
-	let ptr @T = malloc(size * #size_of(T)) as @T;
-	let arr @Array[T] = malloc(#size_of(Array[T])) as @Array[T];
-	arr.ptr = ptr;
-	arr.size = size;
-	return arr;
-}
-
-fn array_free[T](arr @Array[T]) {
-	free(arr.ptr as i64);
-	free(arr as i64);
-}
-
-fn array_get_at[T](arr @Array[T], index u64) @T {
-	return arr.ptr + index * #size_of(T);
-}
-
-fn array_set_at[T](arr @Array[T], index u64, value T) {
-	(arr.ptr + index * #size_of(T)) @= value;
-}
-
-
-type Vec[T] = struct {
-	ptr @T,
-	cap u64,
-	size u64
-}
-
-fn Vec_free[T](v @Vec[T]) {
-	free(v.ptr as i64);
-	free(v as i64);
-}
-
-fn Vec_with_capacity[T](cap u64)  @Vec[T] {
-	let ptr @T =  malloc(#size_of(T) * cap) as @T;
-	let arr @Vec[T] = malloc(#size_of(Vec[T])) as @Vec[T];
-	arr.ptr = 0 as @T;
-	arr.size = 0;
-	arr.cap = cap;
-	return arr;
-}
-
-fn Vec_new[T]() @Vec[T]  {
-	return Vec_with_capacity[T](0);
-}
-
-
-fn Vec_get_at[T](v @Vec[T], index u64) T {
-	return @(v.ptr + index * #size_of(T));
-}
-
-fn Vec_set_at[T](v @Vec[T], index u64, el T) {
-	(v.ptr + index * #size_of(T)) @= el;
-}
-
-fn Vec_push[T](v @Vec[T], el T) {
-	if v.size + 1 >= v.cap {
-		let new_size = (v.size + 1) * 2;
-		let new_ptr = malloc(#size_of(T) * new_size) as @T;
-		memcpy(new_ptr as i64, v.ptr as i64, v.size * #size_of(T));
-		free(v.ptr as i64);
-		v.ptr = new_ptr;
-		v.cap = new_size;
-	}
-	Vec_set_at(v, v.size, el);
-	v.size = v.size + 1;
-}
-
-
-fn Vec_pop[T](v @Vec[T]) T {
-	if v.size > 0 {
-		v.size = v.size - 1;
-	}
-	return Vec_get_at[T](v, v.size);
-}
-
-
-fn Vec_truncate[T](v @Vec[T], size u64) {
-	v.size = size;
-}
-
-
-
-
-fn main(argv i32, argc i64) i32 {
-	let arr @Array[u8] = array_new[u8](11);
-
-	array_set_at[u8](arr, 0, 104 as u8);
-	array_set_at[u8](arr, 1, 101 as u8);
-	array_set_at(arr, 2, 108 as u8);
-	array_set_at(arr, 3, 108 as u8);
-	array_set_at[u8](arr, 4, 111 as u8);
-
-	write(1, arr.ptr as i64, 5);
-
-	array_free[u8](arr);
-
-	return 0;
-}
-
-
+// ── When you truly need one value on the heap ────────────────────────────
+//
+//   let b = Box.new(Point { x: 1, y: 2 });
+//   let x = b.get().x;
+//   // freed automatically at end of scope
+//
+// Raw pointers (@T) are reserved for FFI and low-level code — see
+// examples/box.ms for the escape hatch.

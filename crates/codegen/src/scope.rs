@@ -44,6 +44,34 @@ impl MsVarScopes {
         return None;
     }
 
+    pub fn find_variable_mut(&mut self, name: &str) -> Option<&mut MsVar> {
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some(var) = scope.registry.get_mut(name) {
+                return Some(var);
+            }
+        }
+        return None;
+    }
+
+    /// Mark a variable's ownership as moved (RAII will skip dropping it).
+    pub fn mark_moved(&mut self, name: &str) {
+        if let Some(var) = self.find_variable_mut(name) {
+            var.moved = true;
+        }
+    }
+
+    /// Mark the variable matching this var's identity as moved.
+    pub fn mark_moved_by_var(&mut self, target: &MsVar) {
+        for scope in self.scopes.iter_mut().rev() {
+            for var in scope.registry.values_mut() {
+                if var.c_var == target.c_var && var.ty_id == target.ty_id {
+                    var.moved = true;
+                    return;
+                }
+            }
+        }
+    }
+
     pub fn add_variable(&mut self, var_name: impl Into<Box<str>>, var: MsVar) -> Option<MsVar> {
         let last_scope = self.scopes.last_mut().unwrap();
         let var_name: Box<str> = var_name.into();
@@ -75,7 +103,7 @@ impl MsVarScopes {
 
 pub fn drop_scope(
     reg: &MsVarRegistry,
-    ctx: &MsContext,
+    ctx: &mut MsContext,
     fbx: &mut FunctionBuilder,
     module: &mut ObjectModule,
 ) {
@@ -92,50 +120,29 @@ pub fn drop_scope(
 
 pub fn drop_variable(
     var: &MsVar,
-    ctx: &MsContext,
+    ctx: &mut MsContext,
     fbx: &mut FunctionBuilder,
     module: &mut ObjectModule,
 ) {
     if ctx.disable_auto_drop {
-        log::warn!("Auto Drop (RAII) is disabled, make sure to clean up your variables manually");
         return;
     }
-
-    if var.is_reference {
-        return;
-    }
-
-    let v = var;
-    if let Some(drop_trait) = ctx
-        .current_module
-        .trait_registry
-        .find_trait_for("Drop", v.ty_id)
-    {
-        let function = drop_trait.registry.get("drop").expect(&format!(
-            "missing fn drop(self @mut Self); for {:?}",
-            v.ty_id
-        ));
-        let func_ref = module.declare_func_in_func(function.func_id, fbx.func);
-        let val = if let Some(ss) = v.stack_slot {
-            fbx.ins().stack_addr(types::I64, ss, 0)
-        } else {
-            fbx.use_var(v.c_var)
-        };
-        let _ = fbx.ins().call(func_ref, &[val]);
-    }
+    crate::backend::drop_gen::drop_var_with_raii(var, ctx, fbx, module);
 }
 
 pub fn drop_scopes_until_index(
     scope_index: usize,
-    ctx: &MsContext,
+    ctx: &mut MsContext,
     fbx: &mut FunctionBuilder,
     module: &mut ObjectModule,
 ) {
-    for (idx, scope) in ctx.var_scopes.scopes.iter().enumerate().rev() {
-        if idx <= scope_index {
-            break;
-        }
-        drop_scope(scope, ctx, fbx, module);
+    let registries: Vec<MsVarRegistry> = ctx.var_scopes.scopes[scope_index + 1..]
+        .iter()
+        .rev()
+        .cloned()
+        .collect();
+    for registry in &registries {
+        drop_scope(registry, ctx, fbx, module);
     }
 }
 

@@ -1,9 +1,7 @@
 use std.vec;
 use std.memory;
 
-fn malloc(size i64) i64 extern ;
-fn free(ptr i64) extern ;
-fn memcpy(dest i64, src i64, size i64) i64 extern ;
+// libc externs (malloc/free/memcpy/memset) are provided by std.memory.
 
 type String = struct {
     vec Vec[u8]
@@ -23,14 +21,14 @@ impl String {
     }
 
     fn push_str(self @String, s StrSlice) {
-        let mut i = 0;
-        loop {
-            if i >= s.len {
-                break;
-            }
-            let byte_ptr = (s.pointer + i) as @u8;
-            self.vec.push(@byte_ptr);
-            i = i + 1;
+        if s.len > 0 {
+            self.vec.reserve(s.len as u64);
+            GlobalAllocator.copy_bytes(
+                self.vec.ptr as i64 + self.vec.len(),
+                s.pointer,
+                s.len
+            );
+            self.vec.size = self.vec.size + s.len;
         }
     }
 
@@ -56,7 +54,17 @@ impl String {
         self.vec.clear();
     }
 
+    /// Release early. Optional — RAII frees automatically at scope exit.
     fn free(self @String) {
         self.vec.free();
+    }
+}
+
+/// RAII: release the backing buffer when the String goes out of scope.
+impl Drop for String {
+    fn drop(self @mut String) {
+        if self.vec.cap > 0 {
+            GlobalAllocator.dealloc(self.vec.ptr as i64);
+        }
     }
 }

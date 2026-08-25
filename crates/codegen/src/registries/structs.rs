@@ -93,6 +93,11 @@ impl MsStructType {
         self.size += align;
     }
 
+    /// All fields in arbitrary order (useful when sorting by offset).
+    pub fn field_list(&self) -> Vec<MsStructFieldValue> {
+        self.fields.values().cloned().collect()
+    }
+
     pub fn get_field(&self, field_name: &str) -> Option<&MsStructFieldValue> {
         self.fields.get(field_name)
     }

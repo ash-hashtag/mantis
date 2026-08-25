@@ -593,7 +593,13 @@ impl MsGenericTemplate {
                 if i > 0 {
                     full_name.push_str(", ");
                 }
-                let arg_ty = real_types.get(arg_name).unwrap();
+                let arg_ty = match real_types.get(arg_name) {
+                    Some(t) => t,
+                    None => {
+                        log::warn!("template {} missing generic {} in {:?}; defaulting to i64", self.name, arg_name, real_types.keys().collect::<Vec<_>>());
+                        return MsTypeWithId { id: ms_module.type_registry.get_from_str("i64").map(|t| t.id).unwrap_or(MsTypeId(0)), ty: crate::registries::types::MsType::Native(crate::registries::types::MsNativeType::I64) };
+                    }
+                };
                 full_name.push_str(&format!("{}", arg_ty.id.0)); // Use ID to be unique and short
             }
             full_name.push(']');
@@ -783,7 +789,8 @@ impl Display for MsTypeId {
 pub struct MsTypeNameRegistry {
     map: HashMap<TypeNameWithGenerics, MsTypeId>, // map -> type_id
     inner_map: HashMap<MsTypeId, MsType>,
-    // inner: Vec<MsType>,
+    /// Reverse lookup: type id -> the name it was first registered under.
+    id_names: HashMap<MsTypeId, TypeNameWithGenerics>,
 }
 
 #[derive(Debug, Clone)]
@@ -798,6 +805,11 @@ impl MsTypeNameRegistry {
         let ty = self.get_from_type_id(id)?;
 
         Some(MsTypeWithId { id, ty })
+    }
+
+    /// Name a type id was registered under (for template base-name lookup).
+    pub fn name_of(&self, id: MsTypeId) -> Option<String> {
+        self.id_names.get(&id).map(|n| n.name.to_string())
     }
 
     pub fn get_from_type_id(&self, id: MsTypeId) -> Option<MsType> {
@@ -841,6 +853,7 @@ impl MsTypeNameRegistry {
         let idx = MsTypeId(rand::random());
 
         log::info!("Added Type {:?} -> {:?} with type_id {}", ty_name, ty, idx);
+        self.id_names.entry(idx).or_insert_with(|| ty_name.clone());
         self.map.insert(ty_name, idx);
         self.inner_map.insert(idx, ty);
 
@@ -860,6 +873,7 @@ impl MsTypeNameRegistry {
         let mut registry = Self {
             map: Default::default(),
             inner_map: Default::default(),
+            id_names: Default::default(),
         };
 
         registry.add_type("i16", MsType::Native(MsNativeType::I16));

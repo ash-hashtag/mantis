@@ -49,9 +49,9 @@ struct Args {
 
     #[arg(
         long,
-        help = "RAII, Or Auto Drop very unstable, by default is disabled, enable it with this flag"
+        help = "Disable RAII auto-drop (drops are enabled by default)"
     )]
-    auto_drop: bool,
+    no_auto_drop: bool,
 
     #[arg(long, help = "print syntax-highlighted source code")]
     highlight: bool,
@@ -144,7 +144,7 @@ fn handle0(args: Args) {
             declarations,
             vec![], // include_dirs
             &args.module_name,
-            args.auto_drop,
+            !args.no_auto_drop,
         )
         .unwrap();
         let seconds = start.elapsed().as_secs_f64();

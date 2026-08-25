@@ -31,19 +31,16 @@ impl[T] Vec[T] {
         return self.size == 0;
     }
 
-    fn get(self @Vec[T], index u64) T {
-        return @(self.ptr + index * #size_of(T));
-    }
-
-    fn set(self @Vec[T], index u64, el T) {
-        (self.ptr + index * #size_of(T)) @= el;
-    }
-
-    fn push(self @Vec[T], el T) {
-        if self.size >= self.cap {
+    /// Grow the buffer so at least `additional` more elements fit.
+    fn reserve(self @Vec[T], additional u64) {
+        let needed = self.size + additional;
+        if needed > self.cap {
             let mut new_cap = 4 as u64;
-            if self.cap > 0 {
-                new_cap = self.cap * 2;
+            loop {
+                if new_cap >= needed {
+                    break;
+                }
+                new_cap = new_cap * 2;
             }
             let new_ptr = GlobalAllocator.alloc(new_cap, #size_of(T)) as @T;
             if self.size > 0 {
@@ -53,6 +50,18 @@ impl[T] Vec[T] {
             self.ptr = new_ptr;
             self.cap = new_cap;
         }
+    }
+
+    fn get(self @Vec[T], index u64) T {
+        return @(self.ptr + index * #size_of(T));
+    }
+
+    fn set(self @Vec[T], index u64, el T) {
+        (self.ptr + index * #size_of(T)) @= el;
+    }
+
+    fn push(self @Vec[T], el T) {
+        self.reserve(1);
         (self.ptr + self.size * #size_of(T)) @= el;
         self.size = self.size + 1;
     }
@@ -69,7 +78,17 @@ impl[T] Vec[T] {
         self.size = 0;
     }
 
+    /// Release early. Optional — RAII frees automatically at scope exit.
     fn free(self @Vec[T]) {
+        if self.cap > 0 {
+            GlobalAllocator.dealloc(self.ptr as i64);
+        }
+    }
+}
+
+/// RAII: release the buffer when the Vec goes out of scope.
+impl[T] Drop for Vec[T] {
+    fn drop(self @mut Vec[T]) {
         if self.cap > 0 {
             GlobalAllocator.dealloc(self.ptr as i64);
         }

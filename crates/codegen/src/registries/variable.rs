@@ -15,6 +15,8 @@ pub struct MsVar {
     pub ty_id: MsTypeId,
     pub is_mutable: bool,
     pub is_reference: bool,
+    /// Ownership was moved elsewhere (returned / assigned); skip RAII drop.
+    pub moved: bool,
 }
 
 impl MsVar {
@@ -31,6 +33,7 @@ impl MsVar {
             stack_slot,
             is_mutable,
             is_reference,
+            moved: false,
         }
     }
 
