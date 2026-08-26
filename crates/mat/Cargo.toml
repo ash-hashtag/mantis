@@ -1,7 +1,11 @@
 [package]
-name = "mat"
+name = "mantis"
 version = "0.1.0"
 edition = "2021"
+
+[[bin]]
+name = "mantis"
+path = "src/main.rs"
 
 [[bin]]
 name = "mat"

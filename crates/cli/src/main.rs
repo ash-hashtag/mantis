@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use std::{
+    path::{Path, PathBuf},
     process::{ExitCode, ExitStatus},
     rc::Rc,
     time::Instant,
@@ -12,65 +13,92 @@ use mantis_codegen::backend;
 
 #[derive(clap::Parser, Debug)]
 #[command(
-    version = "0.0.1",
-    about = "mantis compiler",
-    long_about = "mantis language compiler"
+    name = "mantisc",
+    version = "0.1.0",
+    about = "Mantis language compiler",
+    long_about = "Compiler CLI for the Mantis programming language"
 )]
 struct Args {
-    // Input Mantis File
+    /// Input Mantis source file (.ms)
     input: String,
-    // Print AST to a file or console
-    #[arg(long, help = "write dbg! of parsed file to the mentioned path")]
+
+    /// Write debug representation of parsed AST to path
+    #[arg(long)]
     dbg: Option<String>,
-    // Output .o file
-    #[arg(long, short, help = "write .o file to the mentioned path")]
+
+    /// Write .o object file to the mentioned path
+    #[arg(long, short = 'o')]
     obj: Option<String>,
 
-    #[arg(long, short, help = "write executable to the mentioned path")]
+    /// Write executable to the mentioned path
+    #[arg(long, short = 'e')]
     exe: Option<String>,
 
-    #[arg(long, short, help = "write library to the mentioned path")]
+    /// Write library to the mentioned path
+    #[arg(long, short = 'l')]
     lib: Option<String>,
 
-    #[arg(long, help = "if its static library")]
+    /// Build as static library
+    #[arg(long)]
     static_lib: bool,
 
-    #[arg(long, help = "if its dynamic library")]
+    /// Build as dynamic library
+    #[arg(long)]
     shared_lib: bool,
 
-    #[arg(long, short, help = "module name for linking", default_value_t = String::from("main"))]
+    /// Include directories for module imports
+    #[arg(long = "include", short = 'I')]
+    include: Vec<String>,
+
+    /// Libraries or object files to link with cc (e.g. -L pthread -L m -L ext.o)
+    #[arg(long = "link", short = 'L')]
+    link: Vec<String>,
+
+    /// Extra flags passed to C compiler/linker
+    #[arg(short = 'C')]
+    c_flags: Vec<String>,
+
+    /// Module name for linking
+    #[arg(long, short = 'm', default_value_t = String::from("main"))]
     module_name: String,
 
-    #[arg(long, short, help = "cache directory", default_value_t = String::from("./build/cache"))]
+    /// Cache directory
+    #[arg(long, default_value_t = String::from("./build/cache"))]
     cache: String,
 
-    #[arg(long, short, help = "compile and run")]
+    /// Compile and run output executable
+    #[arg(long, short = 'r')]
     run: bool,
 
-    #[arg(
-        long,
-        help = "Disable RAII auto-drop (drops are enabled by default)"
-    )]
+    /// Check syntax and types without generating binary
+    #[arg(long)]
+    check: bool,
+
+    /// Disable RAII auto-drop (drops are enabled by default)
+    #[arg(long)]
     no_auto_drop: bool,
 
-    #[arg(long, help = "Disallow extern (C) function declarations")]
+    /// Disallow extern (C) function declarations
+    #[arg(long)]
     no_external_functions: bool,
 
-    #[arg(long, help = "Disallow syscall wrapper functions")]
+    /// Disallow syscall wrapper functions
+    #[arg(long)]
     no_syscalls: bool,
 
-    #[arg(long, help = "Disallow raw pointers, @= stores and memory intrinsics")]
+    /// Disallow raw pointers, @= stores and memory intrinsics
+    #[arg(long)]
     no_unsafe: bool,
 
-    #[arg(
-        long,
-        help = "Disable Box[T] auto-deref (b.x, b.method(), b.x += 1)"
-    )]
+    /// Disable Box[T] auto-deref (b.x, b.method(), b.x += 1)
+    #[arg(long)]
     no_implicit_conversions: bool,
 
-    #[arg(long, help = "print syntax-highlighted source code")]
+    /// Print syntax-highlighted source code
+    #[arg(long)]
     highlight: bool,
 
+    /// Arguments to pass to the executed binary (when --run is set)
     #[arg(trailing_var_arg = true)]
     run_args: Vec<String>,
 }
@@ -83,7 +111,7 @@ fn main() {
 
 fn init_logger() {
     use std::io::Write;
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
         .format(|buf, record| {
             let ts = buf.timestamp();
             writeln!(
@@ -106,7 +134,7 @@ fn handle0(args: Args) {
             let cfg = match mantis_codegen::config::MantisConfig::load_file(&path) {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("\x1b[31;1merror:\x1b[0m {}", e);
+                    eprintln!("[31;1merror:[0m {}", e);
                     std::process::exit(1);
                 }
             };
@@ -138,7 +166,7 @@ fn handle0(args: Args) {
         Ok(s) => s,
         Err(e) => {
             eprintln!(
-                "\x1b[31;1merror:\x1b[0m failed to read input file '{}': {}",
+                "[31;1merror:[0m failed to read input file '{}': {}",
                 filepath, e
             );
             std::process::exit(1);
@@ -177,6 +205,11 @@ fn handle0(args: Args) {
         std::process::exit(1);
     }
 
+    if args.check {
+        log::info!("syntax and type checking passed");
+        return;
+    }
+
     if let Some(ast_path) = &args.dbg {
         let content = format!("{:#?}", declarations);
         let _ = std::fs::write(ast_path, &content);
@@ -192,7 +225,7 @@ fn handle0(args: Args) {
         let start = std::time::Instant::now();
         let bytes = backend::compile::compile_binary(
             declarations,
-            vec![], // include_dirs
+            args.include.clone(),
             &args.module_name,
             !args.no_auto_drop,
             config.clone(),
@@ -210,8 +243,7 @@ fn handle0(args: Args) {
 
     #[cfg(unix)]
     {
-        println!("Compiling C executable with cc...");
-        std::fs::create_dir_all(&args.cache).unwrap_or(());
+        let _ = std::fs::create_dir_all(&args.cache);
         let default_exe = if matches!(config.project.kind, mantis_codegen::config::ProjectKind::Lib) {
             out_dir.join(format!("lib{}.a", project_name))
         } else {
@@ -219,13 +251,41 @@ fn handle0(args: Args) {
         };
         let exe_file_path = args.exe.unwrap_or_else(|| default_exe.to_str().unwrap().to_string());
 
-        assert!(run_cmd("cc", &[&obj_file_path, "-pthread", "-o", &exe_file_path]).success());
+        let mut cc_args: Vec<String> = vec![
+            obj_file_path.clone(),
+            "-pthread".to_string(),
+            "-o".to_string(),
+            exe_file_path.clone(),
+        ];
+
+        for l in &args.link {
+            if l.ends_with(".o") || l.ends_with(".a") || l.ends_with(".so") || l.contains('/') {
+                cc_args.push(l.clone());
+            } else if l.starts_with("-l") {
+                cc_args.push(l.clone());
+            } else {
+                cc_args.push(format!("-l{}", l));
+            }
+        }
+
+        for c_flag in &args.c_flags {
+            cc_args.push(c_flag.clone());
+        }
+
+        let cc_arg_refs: Vec<&str> = cc_args.iter().map(|s| s.as_str()).collect();
+        assert!(
+            run_cmd("cc", &cc_arg_refs).success(),
+            "linking executable failed"
+        );
 
         log::info!("executable created at {}", exe_file_path);
 
         if args.run {
             let cmd_args = args.run_args.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-            let _ = run_cmd(&exe_file_path, &cmd_args).code().unwrap();
+            let exit_code = run_cmd(&exe_file_path, &cmd_args).code().unwrap_or(1);
+            if exit_code != 0 {
+                std::process::exit(exit_code);
+            }
         }
     }
 }
@@ -244,16 +304,16 @@ fn emit_source_error(path: &str, source: &str, message: &str, span: mantis_parse
     let column = source[line_start..start].chars().count() + 1;
     let width = source[start..span.end.min(line_end)].chars().count().max(1);
 
-    eprintln!("\x1b[31;1merror:\x1b[0m {}", message);
-    eprintln!(" \x1b[34m-->\x1b[0m {}:{}:{}", path, line_number, column);
-    eprintln!("  \x1b[34m|\x1b[0m");
+    eprintln!("[31;1merror:[0m {}", message);
+    eprintln!(" [34m-->[0m {}:{}:{}", path, line_number, column);
+    eprintln!("  [34m|[0m");
     eprintln!(
-        "\x1b[34m{:>2} |\x1b[0m {}",
+        "[34m{:>2} |[0m {}",
         line_number,
         &source[line_start..line_end]
     );
     eprintln!(
-        "  \x1b[34m|\x1b[0m {}\x1b[31m{}\x1b[0m",
+        "  [34m|[0m {}[31m{}[0m",
         " ".repeat(column - 1),
         "^".repeat(width)
     );

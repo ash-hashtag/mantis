@@ -105,7 +105,66 @@ fn test_compile_mantis_source() -> anyhow::Result<()> {
     "#;
 
     let program = mantis_parser::parse(src).expect("parse error");
-    let bytes = crate::backend::compile::compile_binary(program, vec![], "test_module", false)?;
+    let bytes = crate::backend::compile::compile_binary(
+        program,
+        vec![],
+        "test_module",
+        false,
+        crate::config::MantisConfig::defaults(),
+    )?;
+    assert!(!bytes.is_empty());
+    Ok(())
+}
+
+#[test]
+fn test_async_fn_and_await() -> anyhow::Result<()> {
+    let src = r#"
+        async fn async_add(a i32, b i32) i32 {
+            let sum = a + b;
+            return sum;
+        }
+
+        fn main() i32 {
+            let fut = async_add(10, 20);
+            let p = fut.poll();
+            let res = async_add(15, 27).await;
+            return res;
+        }
+    "#;
+
+    let program = mantis_parser::parse(src).expect("parse error");
+    let bytes = crate::backend::compile::compile_binary(
+        program,
+        vec!["std".to_string()],
+        "test_async_module",
+        false,
+        crate::config::MantisConfig::defaults(),
+    )?;
+    assert!(!bytes.is_empty());
+    Ok(())
+}
+
+#[test]
+fn test_async_schedular_compilation() -> anyhow::Result<()> {
+    let src = r#"
+        use std.async_schedular;
+
+        fn main() i32 {
+            let rt = Runtime.new(2);
+            rt.spawn(1, 10, 20);
+            rt.block_on_all();
+            return 0;
+        }
+    "#;
+
+    let program = mantis_parser::parse(src).expect("parse error");
+    let bytes = crate::backend::compile::compile_binary(
+        program,
+        vec!["std".to_string(), ".".to_string()],
+        "test_async_schedular_module",
+        false,
+        crate::config::MantisConfig::defaults(),
+    )?;
     assert!(!bytes.is_empty());
     Ok(())
 }

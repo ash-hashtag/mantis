@@ -1,10 +1,10 @@
 [package]
-name = "mantis"
+name = "mantisc"
 version = "0.0.1"
 edition = "2021"
 
 [[bin]]
-name = "mantis"
+name = "mantisc"
 path = "src/main.rs"
 
 [dependencies]

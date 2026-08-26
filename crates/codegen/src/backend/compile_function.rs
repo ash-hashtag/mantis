@@ -1113,6 +1113,17 @@ pub fn compile_node(
                     }
 
                     let mut search_ty_id = obj_ty_id;
+                    if let Some(MsType::Ref(inner, _)) = ms_ctx
+                        .current_module
+                        .type_registry
+                        .get_from_type_id(search_ty_id)
+                    {
+                        if let Some(inner_id) =
+                            ms_ctx.current_module.type_registry.get_id_from_type(&inner)
+                        {
+                            search_ty_id = inner_id;
+                        }
+                    }
                     // First touch of this instantiation: materialize all its
                     // methods (incl. Drop) so lookups are plain registry hits.
                     if ms_ctx.current_module.type_fn_registry.map.get(&search_ty_id).is_none() {
@@ -1292,8 +1303,29 @@ pub fn compile_node(
                             }
                         }
 
+                        let mut arg_idx = 0;
                         for a in arg_results {
-                            call_arg_values.push(a.value(fbx, ms_ctx));
+                            let mut val = a.value(fbx, ms_ctx);
+                            if let Some(&expected_ty_id) = func.arguments.values().nth(arg_idx) {
+                                let expected_ty = ms_ctx
+                                    .current_module
+                                    .type_registry
+                                    .get_from_type_id(expected_ty_id);
+                                let actual_ty = ms_ctx
+                                    .current_module
+                                    .type_registry
+                                    .get_from_type_id(a.ty());
+
+                                if let (Some(MsType::Native(actual)), Some(MsType::Native(expected))) =
+                                    (actual_ty, expected_ty)
+                                {
+                                    if actual != expected {
+                                        val = actual.cast_to(val, &MsType::Native(expected), fbx);
+                                    }
+                                }
+                            }
+                            call_arg_values.push(val);
+                            arg_idx += 1;
                         }
 
                         eprintln!("DBG-SITE-A funcid={} nvals={} rets={:?} sret={}",
@@ -2137,7 +2169,47 @@ pub fn compile_node(
                 args: vec![],
                 span: *span,
             };
-            return compile_node(&poll_call, module, fbx, ms_ctx);
+            let poll_res = compile_node(&poll_call, module, fbx, ms_ctx)?;
+            let poll_ty_id = poll_res.ty();
+            if let Some(MsType::Enum(enum_ty)) = ms_ctx.current_module.type_registry.get_from_type_id(poll_ty_id) {
+                if let Some(inner_ty) = enum_ty.get_inner_ty("Ready") {
+                    let ptr = poll_res.value(fbx, ms_ctx);
+                    let data_ptr = fbx.ins().iadd_imm(ptr, 8);
+                    match &inner_ty.ty {
+                        MsType::Native(nty) => {
+                            let val = fbx.ins().load(
+                                nty.to_cl_type().unwrap(),
+                                MemFlagsData::new(),
+                                data_ptr,
+                                0,
+                            );
+                            return Some(NodeResult::Val(MsVal::new(inner_ty.id, val)));
+                        }
+                        MsType::Ref(_, _) => {
+                            let val = fbx.ins().load(
+                                types::I64,
+                                MemFlagsData::new(),
+                                data_ptr,
+                                0,
+                            );
+                            return Some(NodeResult::Val(MsVal::new(inner_ty.id, val)));
+                        }
+                        MsType::Struct(_) => {
+                            return Some(NodeResult::Val(MsVal::new(inner_ty.id, data_ptr)));
+                        }
+                        _ => {
+                            let val = fbx.ins().load(
+                                types::I64,
+                                MemFlagsData::new(),
+                                data_ptr,
+                                0,
+                            );
+                            return Some(NodeResult::Val(MsVal::new(inner_ty.id, val)));
+                        }
+                    }
+                }
+            }
+            return Some(poll_res);
         }
         Expr::Yield { expr, span: _ } => {
             return compile_node(expr, module, fbx, ms_ctx);
@@ -2603,10 +2675,14 @@ pub fn compile_statements(
                                 if !fbx.func.signature.returns.is_empty() {
                                     let expected_ty = fbx.func.signature.returns[0].value_type;
                                     let actual_ty = fbx.func.dfg.value_type(val);
-                                    if expected_ty == types::I32 && actual_ty == types::I64 {
-                                        val = fbx.ins().ireduce(types::I32, val);
-                                    } else if expected_ty == types::I64 && actual_ty == types::I32 {
-                                        val = fbx.ins().uextend(types::I64, val);
+                                    if expected_ty != actual_ty {
+                                        if expected_ty.is_int() && actual_ty.is_int() {
+                                            if actual_ty.bits() < expected_ty.bits() {
+                                                val = fbx.ins().uextend(expected_ty, val);
+                                            } else if actual_ty.bits() > expected_ty.bits() {
+                                                val = fbx.ins().ireduce(expected_ty, val);
+                                            }
+                                        }
                                     }
                                 }
                                 if fbx.func.signature.returns.is_empty() {

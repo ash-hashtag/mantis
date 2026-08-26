@@ -34,6 +34,412 @@ pub fn resolve_type_term(ty: &TypeExpr, ms_ctx: &MsContext) {
     };
 }
 
+
+fn transform_return_statements(
+    block: &mut mantis_parser::ast::Block,
+    ret_ty: &mantis_parser::ast::TypeExpr,
+    span: mantis_parser::token::Span,
+) {
+    use mantis_parser::ast::*;
+    let mut new_items = Vec::new();
+    for item in std::mem::take(&mut block.items) {
+        match item {
+            BlockItem::Statement(Statement::Return { value, span: ret_span }) => {
+                let self_result = Expr::Field {
+                    object: Box::new(Expr::Ident(Ident::new("self", ret_span))),
+                    field: Ident::new("result", ret_span),
+                    span: ret_span,
+                };
+                let self_completed = Expr::Field {
+                    object: Box::new(Expr::Ident(Ident::new("self", ret_span))),
+                    field: Ident::new("completed", ret_span),
+                    span: ret_span,
+                };
+
+                if let Some(val_expr) = value {
+                    new_items.push(BlockItem::Statement(Statement::Expr {
+                        expr: Expr::Binary {
+                            op: BinOp::Assign,
+                            lhs: Box::new(self_result.clone()),
+                            rhs: Box::new(val_expr),
+                            span: ret_span,
+                        },
+                        span: ret_span,
+                    }));
+                }
+                new_items.push(BlockItem::Statement(Statement::Expr {
+                    expr: Expr::Binary {
+                        op: BinOp::Assign,
+                        lhs: Box::new(self_completed),
+                        rhs: Box::new(Expr::BoolLit { value: true, span: ret_span }),
+                        span: ret_span,
+                    },
+                    span: ret_span,
+                }));
+                let poll_ready_callee = Expr::Field {
+                    object: Box::new(Expr::Ident(Ident::new("Poll", ret_span))),
+                    field: Ident::new("Ready", ret_span),
+                    span: ret_span,
+                };
+                let poll_ready_call = Expr::Call {
+                    callee: Box::new(poll_ready_callee),
+                    args: vec![self_result],
+                    span: ret_span,
+                };
+                new_items.push(BlockItem::Statement(Statement::Return {
+                    value: Some(poll_ready_call),
+                    span: ret_span,
+                }));
+            }
+            BlockItem::IfChain(mut if_chain) => {
+                transform_return_statements(&mut if_chain.if_block.body, ret_ty, span);
+                for elif in &mut if_chain.elif_blocks {
+                    transform_return_statements(&mut elif.body, ret_ty, span);
+                }
+                if let Some(else_b) = &mut if_chain.else_block {
+                    transform_return_statements(else_b, ret_ty, span);
+                }
+                new_items.push(BlockItem::IfChain(if_chain));
+            }
+            BlockItem::Loop(mut loop_b) => {
+                transform_return_statements(&mut loop_b.body, ret_ty, span);
+                new_items.push(BlockItem::Loop(loop_b));
+            }
+            BlockItem::Match(mut match_b) => {
+                for arm in &mut match_b.arms {
+                    transform_return_statements(&mut arm.body, ret_ty, span);
+                }
+                new_items.push(BlockItem::Match(match_b));
+            }
+            BlockItem::Block(mut sub_b) => {
+                transform_return_statements(&mut sub_b, ret_ty, span);
+                new_items.push(BlockItem::Block(sub_b));
+            }
+            other => new_items.push(other),
+        }
+    }
+    block.items = new_items;
+}
+
+fn expand_async_functions(declarations: &mut Vec<Declaration>) {
+    use mantis_parser::ast::*;
+    use mantis_parser::token::Span;
+
+    let has_poll = declarations.iter().any(|d| match d {
+        Declaration::TypeDef(t) => t.name.as_name() == Some("Poll"),
+        _ => false,
+    });
+
+    let dummy_span = Span::new(0, 0);
+    let mut synthetic_decls = Vec::new();
+
+    if !has_poll {
+        let poll_typedef = Declaration::TypeDef(TypeDef {
+            name: TypeExpr::Generic(
+                Box::new(TypeExpr::Named(Ident::new("Poll", dummy_span))),
+                vec![TypeExpr::Named(Ident::new("T", dummy_span))],
+            ),
+            definition: TypeDefBody::Enum(EnumDef {
+                variants: vec![
+                    EnumVariant {
+                        name: Ident::new("Ready", dummy_span),
+                        fields: vec![TypeExpr::Named(Ident::new("T", dummy_span))],
+                        span: dummy_span,
+                    },
+                    EnumVariant {
+                        name: Ident::new("Pending", dummy_span),
+                        fields: vec![],
+                        span: dummy_span,
+                    },
+                ],
+                span: dummy_span,
+            }),
+            span: dummy_span,
+        });
+        synthetic_decls.push(poll_typedef);
+    }
+
+    let mut new_declarations = Vec::with_capacity(declarations.len());
+
+    for decl in declarations.drain(..) {
+        match decl {
+            Declaration::Function(mut fn_decl) if fn_decl.is_async => {
+                let span = fn_decl.span;
+                let fn_name = fn_decl
+                    .name
+                    .as_ref()
+                    .and_then(|n| n.as_name())
+                    .unwrap_or("anon_async")
+                    .to_string();
+
+                let future_struct_name = format!("__Future_{}", fn_name);
+                let ret_ty = fn_decl
+                    .return_type
+                    .clone()
+                    .unwrap_or_else(|| TypeExpr::Named(Ident::new("i64", span)));
+
+                // 1. Anonymous Future struct definition
+                let mut struct_fields = Vec::new();
+                struct_fields.push(Param {
+                    name: Ident::new("state", span),
+                    mutable: true,
+                    ty: TypeExpr::Named(Ident::new("u32", span)),
+                    span,
+                });
+                struct_fields.push(Param {
+                    name: Ident::new("completed", span),
+                    mutable: true,
+                    ty: TypeExpr::Named(Ident::new("bool", span)),
+                    span,
+                });
+                for p in &fn_decl.params {
+                    struct_fields.push(Param {
+                        name: p.name.clone(),
+                        mutable: true,
+                        ty: p.ty.clone(),
+                        span: p.span,
+                    });
+                }
+                struct_fields.push(Param {
+                    name: Ident::new("result", span),
+                    mutable: true,
+                    ty: ret_ty.clone(),
+                    span,
+                });
+
+                let future_typedef = Declaration::TypeDef(TypeDef {
+                    name: TypeExpr::Named(Ident::new(&future_struct_name, span)),
+                    definition: TypeDefBody::Struct(StructDef {
+                        fields: struct_fields,
+                        span,
+                    }),
+                    span,
+                });
+
+                // 2. Synthesize 
+                let self_ty = TypeExpr::Ref(
+                    Box::new(TypeExpr::Named(Ident::new(&future_struct_name, span))),
+                    false,
+                );
+                let poll_ret_ty = TypeExpr::Generic(
+                    Box::new(TypeExpr::Named(Ident::new("Poll", span))),
+                    vec![ret_ty.clone()],
+                );
+
+                let mut poll_body_items = Vec::new();
+
+                let if_completed = IfChain {
+                    if_block: ConditionalBlock {
+                        condition: Expr::Field {
+                            object: Box::new(Expr::Ident(Ident::new("self", span))),
+                            field: Ident::new("completed", span),
+                            span,
+                        },
+                        body: Block {
+                            items: vec![BlockItem::Statement(Statement::Return {
+                                value: Some(Expr::Call {
+                                    callee: Box::new(Expr::Field {
+                                        object: Box::new(Expr::Ident(Ident::new("Poll", span))),
+                                        field: Ident::new("Ready", span),
+                                        span,
+                                    }),
+                                    args: vec![Expr::Field {
+                                        object: Box::new(Expr::Ident(Ident::new("self", span))),
+                                        field: Ident::new("result", span),
+                                        span,
+                                    }],
+                                    span,
+                                }),
+                                span,
+                            })],
+                            span,
+                        },
+                        span,
+                    },
+                    elif_blocks: vec![],
+                    else_block: None,
+                    span,
+                };
+                poll_body_items.push(BlockItem::IfChain(if_completed));
+
+                for p in &fn_decl.params {
+                    poll_body_items.push(BlockItem::Statement(Statement::Let {
+                        mutable: true,
+                        name: p.name.clone(),
+                        ty: Some(p.ty.clone()),
+                        value: Expr::Field {
+                            object: Box::new(Expr::Ident(Ident::new("self", p.span))),
+                            field: p.name.clone(),
+                            span: p.span,
+                        },
+                        span: p.span,
+                    }));
+                }
+
+                if let Some(mut body) = fn_decl.body.take() {
+                    transform_return_statements(&mut body, &ret_ty, span);
+                    poll_body_items.extend(body.items);
+                }
+
+                poll_body_items.push(BlockItem::Statement(Statement::Expr {
+                    expr: Expr::Binary {
+                        op: BinOp::Assign,
+                        lhs: Box::new(Expr::Field {
+                            object: Box::new(Expr::Ident(Ident::new("self", span))),
+                            field: Ident::new("completed", span),
+                            span,
+                        }),
+                        rhs: Box::new(Expr::BoolLit { value: true, span }),
+                        span,
+                    },
+                    span,
+                }));
+                poll_body_items.push(BlockItem::Statement(Statement::Return {
+                    value: Some(Expr::Call {
+                        callee: Box::new(Expr::Field {
+                            object: Box::new(Expr::Ident(Ident::new("Poll", span))),
+                            field: Ident::new("Ready", span),
+                            span,
+                        }),
+                        args: vec![Expr::Field {
+                            object: Box::new(Expr::Ident(Ident::new("self", span))),
+                            field: Ident::new("result", span),
+                            span,
+                        }],
+                        span,
+                    }),
+                    span,
+                }));
+
+                let poll_fn = FnDecl {
+                    name: Some(TypeExpr::Named(Ident::new("poll", span))),
+                    params: vec![Param {
+                        name: Ident::new("self", span),
+                        mutable: false,
+                        ty: self_ty.clone(),
+                        span,
+                    }],
+                    return_type: Some(poll_ret_ty),
+                    where_clause: vec![],
+                    body: Some(Block {
+                        items: poll_body_items,
+                        span,
+                    }),
+                    is_extern: false,
+                    is_async: false,
+                    trailing_params: None,
+                    span,
+                };
+
+                let future_impl = Declaration::Impl(ImplBlock {
+                    generics: vec![],
+                    trait_name: TypeExpr::Named(Ident::new(&future_struct_name, span)),
+                    for_type: None,
+                    methods: vec![poll_fn],
+                    span,
+                });
+
+                // 3. Transform original fn into constructor returning @__Future_<name>
+                fn_decl.is_async = false;
+                fn_decl.return_type = Some(self_ty.clone());
+
+                let mut ctor_body_items = Vec::new();
+                let size_of_call = Expr::CompilerCall {
+                    name: "size_of".to_string(),
+                    args: vec![Expr::TypeExpr(TypeExpr::Named(Ident::new(
+                        &future_struct_name,
+                        span,
+                    )))],
+                    span,
+                };
+                let malloc_call = Expr::Call {
+                    callee: Box::new(Expr::Ident(Ident::new("malloc", span))),
+                    args: vec![size_of_call],
+                    span,
+                };
+                let cast_malloc = Expr::Cast {
+                    expr: Box::new(malloc_call),
+                    ty: self_ty.clone(),
+                    span,
+                };
+                ctor_body_items.push(BlockItem::Statement(Statement::Let {
+                    mutable: true,
+                    name: Ident::new("__fut", span),
+                    ty: Some(self_ty.clone()),
+                    value: cast_malloc,
+                    span,
+                }));
+
+                ctor_body_items.push(BlockItem::Statement(Statement::Expr {
+                    expr: Expr::Binary {
+                        op: BinOp::Assign,
+                        lhs: Box::new(Expr::Field {
+                            object: Box::new(Expr::Ident(Ident::new("__fut", span))),
+                            field: Ident::new("state", span),
+                            span,
+                        }),
+                        rhs: Box::new(Expr::Cast {
+                            expr: Box::new(Expr::IntLit { value: 0, span }),
+                            ty: TypeExpr::Named(Ident::new("u32", span)),
+                            span,
+                        }),
+                        span,
+                    },
+                    span,
+                }));
+
+                ctor_body_items.push(BlockItem::Statement(Statement::Expr {
+                    expr: Expr::Binary {
+                        op: BinOp::Assign,
+                        lhs: Box::new(Expr::Field {
+                            object: Box::new(Expr::Ident(Ident::new("__fut", span))),
+                            field: Ident::new("completed", span),
+                            span,
+                        }),
+                        rhs: Box::new(Expr::BoolLit { value: false, span }),
+                        span,
+                    },
+                    span,
+                }));
+
+                for p in &fn_decl.params {
+                    ctor_body_items.push(BlockItem::Statement(Statement::Expr {
+                        expr: Expr::Binary {
+                            op: BinOp::Assign,
+                            lhs: Box::new(Expr::Field {
+                                object: Box::new(Expr::Ident(Ident::new("__fut", p.span))),
+                                field: p.name.clone(),
+                                span: p.span,
+                            }),
+                            rhs: Box::new(Expr::Ident(p.name.clone())),
+                            span: p.span,
+                        },
+                        span: p.span,
+                    }));
+                }
+
+                ctor_body_items.push(BlockItem::Statement(Statement::Return {
+                    value: Some(Expr::Ident(Ident::new("__fut", span))),
+                    span,
+                }));
+
+                fn_decl.body = Some(Block {
+                    items: ctor_body_items,
+                    span,
+                });
+
+                new_declarations.push(future_typedef);
+                new_declarations.push(future_impl);
+                new_declarations.push(Declaration::Function(fn_decl));
+            }
+            other => new_declarations.push(other),
+        }
+    }
+
+    synthetic_decls.extend(new_declarations);
+    *declarations = synthetic_decls;
+}
+
 pub fn compile_binary(
     program: Program,
     include_dirs: Vec<String>,
@@ -124,11 +530,45 @@ pub fn compile_binary(
             .insert("pointer".into(), Rc::new(template));
     }
 
-    let include_dirs = if include_dirs.is_empty() {
+    let mut include_dirs = if include_dirs.is_empty() {
         vec![".".to_string(), "std".to_string()]
     } else {
         include_dirs
     };
+    if !include_dirs.contains(&"../std".to_string()) {
+        include_dirs.push("../std".to_string());
+    }
+    if !include_dirs.contains(&"../../std".to_string()) {
+        include_dirs.push("../../std".to_string());
+    }
+    if !include_dirs.contains(&"..".to_string()) {
+        include_dirs.push("..".to_string());
+    }
+    if !include_dirs.contains(&"../..".to_string()) {
+        include_dirs.push("../..".to_string());
+    }
+
+    if let Ok(std_env) = std::env::var("MANTIS_STD") {
+        if !include_dirs.contains(&std_env) {
+            include_dirs.push(std_env);
+        }
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        let mut curr = exe_path.parent();
+        while let Some(dir) = curr {
+            let std_ms = dir.join("std.ms");
+            let std_dir = dir.join("std");
+            if std_ms.exists() || std_dir.exists() {
+                let dir_str = dir.to_string_lossy().to_string();
+                if !include_dirs.contains(&dir_str) {
+                    include_dirs.push(dir_str);
+                }
+                break;
+            }
+            curr = dir.parent();
+        }
+    }
 
     let mut declarations = Vec::new();
     let mut visited = std::collections::HashSet::new();
@@ -245,6 +685,9 @@ pub fn compile_binary(
         &mut declarations,
         &mut visited,
     );
+
+    // Expand async functions into Rust-style Future anonymous structs
+    expand_async_functions(&mut declarations);
 
     // Register implicit 'malloc' and 'memcpy' if not already declared in source
     {

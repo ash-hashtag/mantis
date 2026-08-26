@@ -613,15 +613,12 @@ dependencies = [
 
 [[package]]
 name = "mantis"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "env_logger",
- "log",
- "mantis_codegen",
- "mantis_parser",
- "mantis_syntax",
+ "serde",
+ "toml",
 ]
 
 [[package]]
@@ -670,13 +667,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "mat"
-version = "0.1.0"
+name = "mantisc"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
- "serde",
- "toml",
+ "env_logger",
+ "log",
+ "mantis_codegen",
+ "mantis_parser",
+ "mantis_syntax",
 ]
 
 [[package]]
