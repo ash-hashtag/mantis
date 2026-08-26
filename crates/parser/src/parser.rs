@@ -52,6 +52,10 @@ impl Parser {
         self.tokens.get(self.pos + n).map(|t| &t.token)
     }
 
+    fn peek_nth_span(&self, n: usize) -> Option<Span> {
+        self.tokens.get(self.pos + n).map(|t| t.span)
+    }
+
     fn advance(&mut self) -> &SpannedToken {
         let tok = &self.tokens[self.pos];
         self.pos += 1;
@@ -851,6 +855,49 @@ impl Parser {
                 }
                 lhs = self.parse_postfix(lhs)?;
                 continue;
+            }
+
+            // Compound assignments: += -= *= /= %=
+            {
+                let compound_op = match self.peek() {
+                    Some(Token::Plus) => Some(BinOp::Add),
+                    Some(Token::Minus) => Some(BinOp::Sub),
+                    Some(Token::Star) => Some(BinOp::Mul),
+                    Some(Token::Slash) => Some(BinOp::Div),
+                    Some(Token::Percent) => Some(BinOp::Mod),
+                    _ => None,
+                };
+                if let Some(op) = compound_op {
+                    // The lexer has no dedicated `+=` token: it emits the
+                    // arithmetic op immediately followed by `=`. Require the
+                    // two tokens to be adjacent (no whitespace between them).
+                    let adjacent = match (self.peek_nth_span(0), self.peek_nth_span(1)) {
+                        (Some(a), Some(b)) => a.end == b.start,
+                        _ => false,
+                    };
+                    let is_compound =
+                        adjacent && matches!(self.peek_nth(1), Some(Token::Eq));
+                    if is_compound {
+                        self.advance(); // consume op
+                        self.advance(); // consume =
+                        let rhs = self.parse_expr(1)?;
+                        let value_span = lhs.span().merge(rhs.span());
+                        let value = Expr::Binary {
+                            op,
+                            lhs: Box::new(lhs.clone()),
+                            rhs: Box::new(rhs),
+                            span: value_span,
+                        };
+                        let span = lhs.span().merge(value.span());
+                        lhs = Expr::Binary {
+                            op: BinOp::Assign,
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(value),
+                            span,
+                        };
+                        continue;
+                    }
+                }
             }
 
             // Infix operators

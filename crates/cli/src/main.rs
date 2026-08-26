@@ -53,6 +53,21 @@ struct Args {
     )]
     no_auto_drop: bool,
 
+    #[arg(long, help = "Disallow extern (C) function declarations")]
+    no_external_functions: bool,
+
+    #[arg(long, help = "Disallow syscall wrapper functions")]
+    no_syscalls: bool,
+
+    #[arg(long, help = "Disallow raw pointers, @= stores and memory intrinsics")]
+    no_unsafe: bool,
+
+    #[arg(
+        long,
+        help = "Disable Box[T] auto-deref (b.x, b.method(), b.x += 1)"
+    )]
+    no_implicit_conversions: bool,
+
     #[arg(long, help = "print syntax-highlighted source code")]
     highlight: bool,
 
@@ -85,6 +100,39 @@ fn init_logger() {
 }
 
 fn handle0(args: Args) {
+    // ── Configuration: config.toml, then CLI overrides ──────────────────
+    let mut config = match mantis_codegen::config::MantisConfig::discover() {
+        Some(path) => {
+            let cfg = match mantis_codegen::config::MantisConfig::load_file(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("\x1b[31;1merror:\x1b[0m {}", e);
+                    std::process::exit(1);
+                }
+            };
+            log::info!("loaded config from {}", path.display());
+            cfg
+        }
+        None => mantis_codegen::config::MantisConfig::defaults(),
+    };
+    config.apply_cli_overrides(
+        args.no_external_functions,
+        args.no_syscalls,
+        args.no_unsafe,
+        args.no_implicit_conversions,
+    );
+
+    let input_path = std::path::PathBuf::from(&args.input);
+    let stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("main")
+        .to_string();
+    let project_name = config.project.name.clone().unwrap_or(stem);
+
+    let out_dir = std::path::PathBuf::from(&config.project.out_dir);
+    let _ = std::fs::create_dir_all(&out_dir);
+
     let filepath = args.input;
     let input = match std::fs::read_to_string(&filepath) {
         Ok(s) => s,
@@ -135,8 +183,10 @@ fn handle0(args: Args) {
         log::info!("wrote ast to {} {} bytes", ast_path, content.len());
     }
 
-    let default_obj = format!("{}.o", args.module_name);
-    let obj_file_path = args.obj.unwrap_or(default_obj);
+    let default_obj = out_dir.join(format!("{}.o", project_name));
+    let obj_file_path = args
+        .obj
+        .unwrap_or_else(|| default_obj.to_str().unwrap().to_string());
 
     {
         let start = std::time::Instant::now();
@@ -145,6 +195,7 @@ fn handle0(args: Args) {
             vec![], // include_dirs
             &args.module_name,
             !args.no_auto_drop,
+            config.clone(),
         )
         .unwrap();
         let seconds = start.elapsed().as_secs_f64();
@@ -161,12 +212,12 @@ fn handle0(args: Args) {
     {
         println!("Compiling C executable with cc...");
         std::fs::create_dir_all(&args.cache).unwrap_or(());
-        let default_exe = std::path::PathBuf::from(&args.cache)
-            .join(&args.module_name)
-            .to_str()
-            .unwrap()
-            .to_string();
-        let exe_file_path = args.exe.unwrap_or(default_exe);
+        let default_exe = if matches!(config.project.kind, mantis_codegen::config::ProjectKind::Lib) {
+            out_dir.join(format!("lib{}.a", project_name))
+        } else {
+            out_dir.join(&project_name)
+        };
+        let exe_file_path = args.exe.unwrap_or_else(|| default_exe.to_str().unwrap().to_string());
 
         assert!(run_cmd("cc", &[&obj_file_path, "-pthread", "-o", &exe_file_path]).success());
 

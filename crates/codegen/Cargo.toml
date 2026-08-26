@@ -16,3 +16,5 @@ env_logger.workspace = true
 linear-map.workspace = true
 rand.workspace = true
 anyhow.workspace = true
+serde.workspace = true
+toml.workspace = true

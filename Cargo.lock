@@ -640,6 +640,8 @@ dependencies = [
  "logos",
  "mantis_parser",
  "rand",
+ "serde",
+ "toml",
 ]
 
 [[package]]

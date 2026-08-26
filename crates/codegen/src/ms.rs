@@ -32,6 +32,7 @@ pub struct MsContext {
     pub disable_auto_drop: bool,
     pub instantiation_queue: Vec<MsInstantiation>,
     pub globals: HashMap<Box<str>, MsGlobal>,
+    pub config: crate::config::MantisConfig,
 }
 
 impl MsContext {
@@ -44,6 +45,7 @@ impl MsContext {
             disable_auto_drop: false,
             instantiation_queue: vec![],
             globals: HashMap::new(),
+            config: crate::config::MantisConfig::defaults(),
         }
     }
 

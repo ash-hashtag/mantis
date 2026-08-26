@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod config;
 pub mod frontend;
 pub mod lexer;
 pub mod libc;

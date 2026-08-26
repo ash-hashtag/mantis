@@ -39,7 +39,20 @@ pub fn compile_binary(
     include_dirs: Vec<String>,
     module_name: &str,
     auto_drop: bool,
+    config: crate::config::MantisConfig,
 ) -> anyhow::Result<Vec<u8>> {
+    // ── Policy enforcement ────────────────────────────────────────────
+    let violations = config.check_program(&program);
+    if !violations.is_empty() {
+        for v in &violations {
+            eprintln!("\x1b[31;1merror:\x1b[0m {}", v);
+        }
+        return Err(anyhow::anyhow!(
+            "{} policy violation(s); adjust config.toml or the --allow-* flags",
+            violations.len()
+        ));
+    }
+
     let data_description = DataDescription::new();
     let mut flag_builder = settings::builder();
     flag_builder.set("preserve_frame_pointers", "true");
@@ -54,6 +67,7 @@ pub fn compile_binary(
     let mut ctx = module.make_context();
     let mut ms_ctx = MsContext::new(0);
     ms_ctx.disable_auto_drop = !auto_drop;
+    ms_ctx.config = config;
 
     // Register StrSlice
     {

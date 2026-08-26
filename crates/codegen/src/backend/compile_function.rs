@@ -1112,7 +1112,7 @@ pub fn compile_node(
                         _ => {}
                     }
 
-                    let search_ty_id = obj_ty_id;
+                    let mut search_ty_id = obj_ty_id;
                     // First touch of this instantiation: materialize all its
                     // methods (incl. Drop) so lookups are plain registry hits.
                     if ms_ctx.current_module.type_fn_registry.map.get(&search_ty_id).is_none() {
@@ -1120,6 +1120,63 @@ pub fn compile_node(
                             search_ty_id, ms_ctx, module,
                         );
                     }
+
+                    // allow_implicit_conversions: `boxed.method(...)` dispatches
+                    // to the method on the value inside the box; `self` becomes
+                    // the box's owning pointer.
+                    let mut box_self_ptr: Option<cranelift::prelude::Value> = None;
+                    let mut box_self_ty: Option<MsTypeId> = None;
+                    if is_box_type(obj_ty_id, ms_ctx)
+                        && ms_ctx
+                            .current_module
+                            .type_fn_registry
+                            .map
+                            .get(&search_ty_id)
+                            .and_then(|e| e.registry.get(method_name))
+                            .is_none()
+                    {
+                        if let Some(MsType::Struct(box_sty)) =
+                            ms_ctx.current_module.type_registry.get_from_type_id(obj_ty_id)
+                        {
+                            if let Some(pf) = box_sty.get_field("ptr") {
+                                if let Some(MsType::Ref(inner, _)) = ms_ctx
+                                    .current_module
+                                    .type_registry
+                                    .get_from_type_id(pf.ty)
+                                {
+                                    let inner_struct_id = ms_ctx
+                                        .current_module
+                                        .type_registry
+                                        .get_or_add_type((*inner).clone());
+                                    crate::backend::drop_gen::ensure_type_methods(
+                                        inner_struct_id,
+                                        ms_ctx,
+                                        module,
+                                    );
+                                    if ms_ctx
+                                        .current_module
+                                        .type_fn_registry
+                                        .map
+                                        .get(&inner_struct_id)
+                                        .and_then(|e| e.registry.get(method_name))
+                                        .is_some()
+                                    {
+                                        search_ty_id = inner_struct_id;
+                                        box_self_ty = Some(pf.ty);
+                                        let base = obj_res.value(fbx, ms_ctx);
+                                        let ptr_val = fbx.ins().load(
+                                            types::I64,
+                                            MemFlagsData::new(),
+                                            base,
+                                            pf.offset as i32,
+                                        );
+                                        box_self_ptr = Some(ptr_val);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     let maybe_func = ms_ctx
                         .current_module
                         .type_fn_registry
@@ -1185,7 +1242,11 @@ pub fn compile_node(
 
                     if let Some(func) = maybe_func {
                         let mut arg_results = Vec::new();
-                        if !matches!(obj_res, NodeResult::TypeRef(_)) {
+                        if let Some(self_ptr) = box_self_ptr {
+                            // Dispatching through the box: self is @T.
+                            let ref_ty_id = box_self_ty.unwrap_or(search_ty_id);
+                            arg_results.push(NodeResult::Val(MsVal::new(ref_ty_id, self_ptr)));
+                        } else if !matches!(obj_res, NodeResult::TypeRef(_)) {
                             arg_results.push(obj_res);
                         }
                         for arg in args {
@@ -2178,6 +2239,33 @@ pub fn compile_nested_struct_access(
         MsType::Struct(struct_ty) => match child {
             MsTokenType::Named(ident) => {
                 let field_name = ident.name.as_str();
+
+                // allow_implicit_conversions: `box.field` operates on the value
+                // inside the box — deref through its owning pointer.
+                if field_name != "ptr"
+                    && ms_ctx.config.allow_implicit_conversions
+                    && is_box_type(var.ty(), ms_ctx)
+                {
+                    if let Some(ptr_field) = struct_ty.get_field("ptr") {
+                        let base_ptr = var.address(fbx, ms_ctx);
+                        let inner_ref = fbx.ins().load(
+                            types::I64,
+                            MemFlagsData::new(),
+                            base_ptr,
+                            ptr_field.offset as i32,
+                        );
+                        let inner_val =
+                            NodeResult::Val(MsVal::new(ptr_field.ty, inner_ref));
+                        return compile_nested_struct_access(
+                            inner_val,
+                            &MsTokenType::Named(ident.clone()),
+                            ms_ctx,
+                            fbx,
+                            module,
+                        );
+                    }
+                }
+
                 let field = struct_ty
                     .get_field(field_name)
                     .expect(&format!("unknown field in struct {}", field_name));
@@ -3376,4 +3464,16 @@ fn unify_type_expr_with_concrete(
         }
         _ => {}
     }
+}
+
+
+/// True when a type id names a `Box[T]` instantiation.
+pub fn is_box_type(ty_id: MsTypeId, ms_ctx: &MsContext) -> bool {
+    if !ms_ctx.config.allow_implicit_conversions {
+        return false;
+    }
+    let Some(name) = ms_ctx.current_module.type_registry.name_of(ty_id) else {
+        return false;
+    };
+    name == "Box" || name.starts_with("Box[")
 }
