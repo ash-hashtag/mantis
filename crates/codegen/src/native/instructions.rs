@@ -31,7 +31,7 @@ impl NodeResult {
     pub fn value(&self, fbx: &mut FunctionBuilder, ms_ctx: &crate::ms::MsContext) -> Value {
         match self {
             NodeResult::Val(val) => val.value,
-            NodeResult::Var(var) => fbx.use_var(var.c_var),
+            NodeResult::Var(var) => var.value(fbx, ms_ctx),
             NodeResult::StructAccessVar { ptr, offset, ty_id } => {
                 let ty = ms_ctx
                     .current_module

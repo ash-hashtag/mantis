@@ -262,7 +262,18 @@ pub fn compile_function(
 
     ctx.func.signature.call_conv = module.isa().default_call_conv();
 
-    let fn_name_str = exporting_fn_name.unwrap_or(&name);
+    let is_c_collision = !function.is_extern && exporting_fn_name.is_none() && matches!(
+        name.as_str(),
+        "write" | "read" | "open" | "close" | "exit" | "malloc" | "free" | "realloc" | "memcpy" | "memset" | "memcmp" | "strlen" | "strcmp" | "strncmp" | "strcpy" | "strncpy" | "access" | "unlink" | "mkdir" | "getenv" | "setenv" | "unsetenv" | "getcwd" | "system" | "usleep" | "time" | "socket" | "bind" | "listen" | "accept" | "connect" | "puts"
+    );
+    let sym_name_buf;
+    let fn_name_str = if is_c_collision {
+        linkage = Linkage::Local;
+        sym_name_buf = format!("ms_fn_{}_{}", name, function.span.start);
+        sym_name_buf.as_str()
+    } else {
+        exporting_fn_name.unwrap_or(&name)
+    };
     let func_id = match module.declare_function(
         fn_name_str,
         linkage,
@@ -294,6 +305,12 @@ pub fn compile_function(
         .current_module
         .fn_registry
         .add_function(exporting_fn_name.unwrap_or(&name), declared_function.clone());
+    if function.is_extern {
+        ms_ctx
+            .current_module
+            .fn_registry
+            .add_function(format!("libc.{}", name), declared_function.clone());
+    }
 
     if let Some(tot) = &trait_on_type {
         if let Some(trait_name) = tot.trait_name {
@@ -1508,7 +1525,18 @@ pub fn compile_node(
                         if let MsType::Ref(inner, _) = ty {
                             current_ty_id = ms_ctx.current_module.type_registry.get_or_add_type(*inner);
                         }
-                        if let Some(func) = ms_ctx.current_module.find_type_fn(current_ty_id, method_name).or_else(|| {
+                        let obj_ident_name = match &**object {
+                            Expr::Ident(id) => Some(id.name.as_str()),
+                            _ => None,
+                        };
+                        let is_qualified_module_call = obj_ident_name.is_some();
+                        let qualified_func = obj_ident_name.and_then(|mod_name| {
+                            ms_ctx.current_module.find_function(&format!("{}.{}", mod_name, method_name))
+                        });
+
+                        if let Some(func) = qualified_func.or_else(|| {
+                            ms_ctx.current_module.find_type_fn(current_ty_id, method_name)
+                        }).or_else(|| {
                             let ty_name = ms_ctx.current_module.type_registry.name_of(current_ty_id)?;
                             let base_name = ty_name.split("[").next().unwrap_or(&ty_name);
                             ms_ctx.current_module.find_type_fn_by_name(base_name, method_name)
@@ -1542,7 +1570,9 @@ pub fn compile_node(
                                     }
                                 }
                             }
-                            call_args.push(obj_res.value(fbx, ms_ctx));
+                            if !matches!(obj_res, NodeResult::TypeRef(_)) && !is_qualified_module_call {
+                                call_args.push(obj_res.value(fbx, ms_ctx));
+                            }
                             for a in &arg_results {
                                 call_args.push(a.value(fbx, ms_ctx));
                             }
@@ -2676,8 +2706,8 @@ pub fn compile_nested_struct_access(
             _ => unreachable!(),
         },
         MsType::Enum(enum_ty) => {
-            let variant_name = child.as_name().unwrap();
-            let tag_idx = enum_ty.get_tag_index(variant_name).unwrap();
+            let variant_name = child.as_name().unwrap_or("");
+            let tag_idx = enum_ty.get_tag_index(variant_name).unwrap_or(0);
             let i64_ty = ms_ctx
                 .current_module
                 .resolve_from_str("i64")

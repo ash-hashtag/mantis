@@ -544,21 +544,33 @@ pub fn compile_binary(
     }
 
     let mut include_dirs = if include_dirs.is_empty() {
-        vec![".".to_string(), "std".to_string()]
+        vec![".".to_string(), "std".to_string(), "packages".to_string()]
     } else {
         include_dirs
     };
-    if !include_dirs.contains(&"../std".to_string()) {
-        include_dirs.push("../std".to_string());
+    for dir in &[
+        "packages",
+        "../packages",
+        "../../packages",
+        "std",
+        "../std",
+        "../../std",
+        "..",
+        "../..",
+    ] {
+        if !include_dirs.contains(&dir.to_string()) {
+            include_dirs.push(dir.to_string());
+        }
     }
-    if !include_dirs.contains(&"../../std".to_string()) {
-        include_dirs.push("../../std".to_string());
-    }
-    if !include_dirs.contains(&"..".to_string()) {
-        include_dirs.push("..".to_string());
-    }
-    if !include_dirs.contains(&"../..".to_string()) {
-        include_dirs.push("../..".to_string());
+    if let Ok(home) = std::env::var("HOME") {
+        let mantis_home = format!("{}/.mantis/packages", home);
+        if !include_dirs.contains(&mantis_home) {
+            include_dirs.push(mantis_home);
+        }
+        let mantis_root = format!("{}/.mantis", home);
+        if !include_dirs.contains(&mantis_root) {
+            include_dirs.push(mantis_root);
+        }
     }
 
     if let Ok(std_env) = std::env::var("MANTIS_STD") {

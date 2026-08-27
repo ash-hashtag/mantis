@@ -295,6 +295,30 @@ impl MsModule {
                         ));
                     }
                 }
+
+                if let Type::Nested(root, child) = type_name {
+                    let root_name = root.as_name().unwrap_or_default();
+                    let method_name = child.as_name().unwrap_or_default();
+                    let template_opt = self
+                        .trait_generic_templates
+                        .registry
+                        .get(root_name)
+                        .and_then(|templates| {
+                            templates.iter().find(|t| {
+                                t.decl.name.as_ref().and_then(|n| n.as_name()) == Some(method_name)
+                            }).cloned()
+                        });
+                    if let Some(template) = template_opt {
+                        let real_types = generics
+                            .iter()
+                            .map(|x| self.resolve(x))
+                            .collect::<Option<Vec<_>>>()?;
+                        return Some(MsResolved::GenericFunctionInstantiation(
+                            template,
+                            real_types,
+                        ));
+                    }
+                }
                 return None;
             }
             Type::Named(ident) => {
@@ -417,6 +441,15 @@ impl MsModule {
                         if let Some(res) = sub.resolve(&Type::Named(rem_child)) {
                             return Some(res);
                         }
+                    }
+                }
+
+                if let Some(child_name) = child.as_name() {
+                    if let Some(func) = self.find_function(child_name) {
+                        return Some(MsResolved::Function(func));
+                    }
+                    if let Some(template) = self.find_fn_template(child_name) {
+                        return Some(MsResolved::GenericFunction(template));
                     }
                 }
 
@@ -551,6 +584,16 @@ pub fn resolve_module_by_path(
         if file_cand.is_file() {
             if let Ok(content) = std::fs::read_to_string(&file_cand) {
                 return Some(ModuleEntry::Module(content));
+            }
+        }
+        if path.len() > 1 {
+            let pkg = path[0].name.as_str();
+            let rest = path[1..].iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join("/");
+            let src_cand = std::path::Path::new(dir_path).join(pkg).join("src").join(&rest).with_extension("ms");
+            if src_cand.is_file() {
+                if let Ok(content) = std::fs::read_to_string(&src_cand) {
+                    return Some(ModuleEntry::Module(content));
+                }
             }
         }
         if base.is_dir() {

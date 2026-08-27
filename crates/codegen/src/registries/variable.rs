@@ -54,6 +54,11 @@ impl MsVar {
                 );
             }
         }
+        if let Some(crate::registries::types::MsType::Struct(_) | crate::registries::types::MsType::Enum(_)) = ty {
+            if let Some(ss) = self.stack_slot {
+                return fbx.ins().stack_addr(cranelift::prelude::types::I64, ss, 0);
+            }
+        }
         fbx.use_var(self.c_var)
     }
 }
