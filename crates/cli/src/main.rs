@@ -109,17 +109,35 @@ struct Args {
     /// Arguments to pass to the executed binary (when --run is set)
     #[arg(trailing_var_arg = true)]
     run_args: Vec<String>,
+
+    /// Write compiler logs to a file instead of stderr
+    #[arg(long)]
+    log_file: Option<String>,
 }
 
 fn main() {
-    init_logger();
     let args = Args::parse();
+    init_logger(args.log_file.as_deref());
     handle0(args);
 }
 
-fn init_logger() {
+fn init_logger(log_file: Option<&str>) {
     use std::io::Write;
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
+    let default_filter = if log_file.is_some() { "info" } else { "off" };
+    let mut builder = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or(default_filter),
+    );
+    if let Some(path) = log_file {
+        match std::fs::File::create(path) {
+            Ok(file) => {
+                builder.target(env_logger::Target::Pipe(Box::new(file)));
+            }
+            Err(error) => {
+                eprintln!("warning: cannot open log file '{}': {}", path, error);
+            }
+        }
+    }
+    builder
         .format(|buf, record| {
             let ts = buf.timestamp();
             writeln!(
@@ -167,7 +185,9 @@ fn handle0(args: Args) {
         .to_string();
     let project_name = config.project.name.clone().unwrap_or(stem);
 
-    let out_dir = std::path::PathBuf::from(&config.project.out_dir);
+    let out_dir = std::env::var_os("MANTIS_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(&config.project.out_dir));
     let _ = std::fs::create_dir_all(&out_dir);
 
     let filepath = args.input;

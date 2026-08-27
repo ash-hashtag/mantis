@@ -34,6 +34,65 @@ fn print_version() {
     print_str("mantis 0.1.0 (self-hosted package manager)\n");
 }
 
+// The CLI only needs borrowed command-line slices. Avoid materializing the
+// entire argv array here; this also keeps the command dispatcher independent
+// of Vec[String]'s owning representation.
+fn arg_slice(index i64) Str {
+    let argv = libc.mantis_get_argv();
+    let ptr = @((argv + (index * 8)) as @i64);
+    if ptr == 0 {
+        return StrSlice { pointer: 0, len: 0 };
+    }
+    return StrSlice { pointer: ptr, len: libc.strlen(ptr) as i64 };
+}
+
+fn shell_write(path Str, contents Str) i32 {
+    let mut cmd = String.with_capacity(path.len + contents.len + 32);
+    cmd.push_str("printf '%s' '");
+    cmd.push_str(contents);
+    cmd.push_str("' > ");
+    cmd.push_str(path);
+    return exec_cmd(cmd.as_str());
+}
+
+fn path_exists(path Str) bool {
+    let mut cmd = String.with_capacity((path.len + 12) as u64);
+    cmd.push_str("test -e ");
+    cmd.push_str(path);
+    return exec_cmd(cmd.as_str()) == 0;
+}
+
+fn build_root() String {
+    return String.from_str("${MANTIS_TARGET_DIR:-build}");
+}
+
+fn debug_root() String {
+    let mut root = build_root();
+    root.push_str("/debug");
+    return root;
+}
+
+fn prepare_git_dependencies(debug_dir Str) i32 {
+    // Read simple `[dependencies] name = { git = "..." }` entries, cache
+    // shallow clones, expose name aliases, then compile package libraries.
+    let mut cmd = String.with_capacity(1024);
+    cmd.push_str("if test -f mantis.toml; then ");
+    cmd.push_str("cache=\"$HOME/.mantis/pkgcache\"; ");
+    cmd.push_str("sed -n '/^\\[dependencies\\]/,/^\\[/p' mantis.toml | ");
+    cmd.push_str("sed -n 's/^[[:space:]]*\\([A-Za-z0-9_-]*\\)[[:space:]]*=.*git[[:space:]]*=[[:space:]]*\"\\([^\"]*\\)\".*/\\1 \\2/p' | ");
+    cmd.push_str("while read name url; do ");
+    cmd.push_str("commit=$(git ls-remote \"$url\" HEAD 2>/dev/null | cut -c1-12); ");
+    cmd.push_str("test -n \"$commit\" || exit 1; dir=\"$cache/$name-$commit\"; ");
+    cmd.push_str("test -d \"$dir\" || git clone --recursive --depth 1 \"$url\" \"$dir\" || exit 1; ");
+    cmd.push_str("ln -sfn \"$dir\" \"$cache/$name\"; ");
+    cmd.push_str("src=\"$dir/src/lib.ms\"; test -f \"$src\" || src=\"$dir/src/main.ms\"; ");
+    cmd.push_str("test -f \"$src\" || continue; ");
+    cmd.push_str("base=$(basename \"$dir\"); \"$HOME/.mantis/bin/mantisc\" -c \"$src\" -I \"$cache\" -o \"$PWD/");
+    cmd.push_str(debug_dir);
+    cmd.push_str("/$base.o\" || exit 1; done; fi");
+    return exec_cmd(cmd.as_str());
+}
+
 fn handle_new(name Str) i32 {
     if name.len == 0 {
         print_str("error: `mantis new` requires a project name. Example: mantis new my_app\n");
@@ -43,7 +102,14 @@ fn handle_new(name Str) i32 {
     let mut src_dir = String.with_capacity((name.len + 5) as u64);
     src_dir.push_str(name);
     src_dir.push_str("/src");
-    let _ = std.fs.create_dir_all(src_dir.as_str());
+    let mut mkdir_cmd = String.with_capacity((src_dir.len() + 10) as u64);
+    mkdir_cmd.push_str("mkdir -p ");
+    mkdir_cmd.push_str(src_dir.as_str());
+    let mkdir_status = exec_cmd(mkdir_cmd.as_str());
+    if mkdir_status != 0 {
+        print_str("error: could not create project directory\n");
+        return mkdir_status;
+    }
 
     let mut toml_path = String.with_capacity((name.len + 13) as u64);
     toml_path.push_str(name);
@@ -52,16 +118,24 @@ fn handle_new(name Str) i32 {
     let mut toml_content = String.with_capacity(256);
     toml_content.push_str("[project]\nname = \"");
     toml_content.push_str(name);
-    toml_content.push_str("\"\nversion = \"0.1.0\"\nauthors = []\n\n[build]\nentry = \"src/main.ms\"\ntarget = \"target/main\"\nopt_level = 0\n");
+    toml_content.push_str("\"\nversion = \"0.1.0\"\nauthors = []\n\n[build]\nentry = \"src/main.ms\"\ntarget = \"build/debug/main\"\nopt_level = 0\n");
 
-    let _ = std.fs.write(toml_path.as_str(), toml_content.as_str());
+    let write_status = shell_write(toml_path.as_str(), toml_content.as_str());
+    if write_status != 0 {
+        print_str("error: could not write mantis.toml\n");
+        return write_status;
+    }
 
     let mut main_path = String.with_capacity((name.len + 13) as u64);
     main_path.push_str(name);
     main_path.push_str("/src/main.ms");
 
     let main_content = "use std;\n\nfn main() i32 {\n    println_str(\"Hello, Mantis!\");\n    return 0;\n}\n";
-    let _ = std.fs.write(main_path.as_str(), main_content);
+    let write_status = shell_write(main_path.as_str(), main_content);
+    if write_status != 0 {
+        print_str("error: could not write src/main.ms\n");
+        return write_status;
+    }
 
     print_str("     Created binary (application) `");
     print_str(name);
@@ -70,16 +144,20 @@ fn handle_new(name Str) i32 {
 }
 
 fn handle_init() i32 {
-    let _ = std.fs.create_dir_all("src");
-
-    if !std.fs.exists("mantis.toml") {
-        let toml_content = "[project]\nname = \"app\"\nversion = \"0.1.0\"\nauthors = []\n\n[build]\nentry = \"src/main.ms\"\ntarget = \"target/main\"\nopt_level = 0\n";
-        let _ = std.fs.write("mantis.toml", toml_content);
+    let mkdir_status = exec_cmd("mkdir -p src");
+    if mkdir_status != 0 {
+        print_str("error: could not create src directory\n");
+        return mkdir_status;
     }
 
-    if !std.fs.exists("src/main.ms") {
+    if !path_exists("mantis.toml") {
+        let toml_content = "[project]\nname = \"app\"\nversion = \"0.1.0\"\nauthors = []\n\n[build]\nentry = \"src/main.ms\"\ntarget = \"build/debug/main\"\nopt_level = 0\n";
+        let _ = shell_write("mantis.toml", toml_content);
+    }
+
+    if !path_exists("src/main.ms") {
         let main_content = "use std;\n\nfn main() i32 {\n    println_str(\"Hello, Mantis!\");\n    return 0;\n}\n";
-        let _ = std.fs.write("src/main.ms", main_content);
+        let _ = shell_write("src/main.ms", main_content);
     }
 
     print_str("     Initialized binary (application) package in current directory\n");
@@ -87,43 +165,15 @@ fn handle_init() i32 {
 }
 
 fn handle_clean() i32 {
-    let _ = exec_cmd("rm -rf target build");
-    print_str("   Cleaned target/ and build/ directories\n");
+    let _ = exec_cmd("rm -rf build target");
+    print_str("   Cleaned build/ and target/ directories\n");
     return 0;
 }
 
 fn handle_check() i32 {
-    if !std.fs.exists("mantis.toml") {
-        if !std.fs.exists("src/main.ms") {
-            print_str("error: could not find `mantis.toml` or `src/main.ms` in current directory\n");
-            return 1;
-        }
-    }
-
     let mut entry = String.from_str("src/main.ms");
     let mut check_cmd = String.with_capacity(512);
     check_cmd.push_str("~/.mantis/bin/mantisc ");
-
-    if std.fs.exists("mantis.toml") {
-        let toml_res = std.fs.read_to_string("mantis.toml");
-        if toml_res.is_ok() {
-            let content = toml_res.unwrap();
-            let doc = Toml.parse(content.as_str());
-            entry = doc.get_or("build", "entry", "src/main.ms");
-            let deps = doc.get_dep_paths();
-            let mut i = 0;
-            loop {
-                if i >= deps.len() {
-                    break;
-                }
-                let dep = deps.get(i);
-                check_cmd.push_str("-I ");
-                check_cmd.push_str(dep.as_str());
-                check_cmd.push_str(" ");
-                i = i + 1;
-            }
-        }
-    }
 
     check_cmd.push_str(entry.as_str());
     check_cmd.push_str(" --check");
@@ -142,50 +192,32 @@ fn handle_check() i32 {
 }
 
 fn handle_build() i32 {
-    if !std.fs.exists("mantis.toml") {
-        if !std.fs.exists("src/main.ms") {
-            print_str("error: could not find `mantis.toml` or `src/main.ms` in current directory\n");
-            return 1;
-        }
+    let mut debug_dir = debug_root();
+    let mut mkdir_cmd = String.with_capacity((debug_dir.len() + 10) as u64);
+    mkdir_cmd.push_str("mkdir -p ");
+    mkdir_cmd.push_str(debug_dir.as_str());
+    let _ = exec_cmd(mkdir_cmd.as_str());
+    let dep_status = prepare_git_dependencies(debug_dir.as_str());
+    if dep_status != 0 {
+        print_str("error: dependency preparation failed\n");
+        return dep_status;
     }
-
-    let _ = std.fs.create_dir_all("target");
 
     let mut proj_name = String.from_str("app");
     let mut proj_ver = String.from_str("0.1.0");
     let mut entry = String.from_str("src/main.ms");
-    let mut target_out = String.from_str("target/main");
+    let mut target_out = String.new();
+    target_out.push_str(debug_dir.as_str());
+    target_out.push_str("/main");
 
     let mut compile_cmd = String.with_capacity(512);
     compile_cmd.push_str("~/.mantis/bin/mantisc -c ");
-
-    if std.fs.exists("mantis.toml") {
-        let toml_res = std.fs.read_to_string("mantis.toml");
-        if toml_res.is_ok() {
-            let content = toml_res.unwrap();
-            let doc = Toml.parse(content.as_str());
-            proj_name = doc.get_or("project", "name", "app");
-            proj_ver = doc.get_or("project", "version", "0.1.0");
-            entry = doc.get_or("build", "entry", "src/main.ms");
-            target_out = doc.get_or("build", "target", "target/main");
-
-            let deps = doc.get_dep_paths();
-            let mut i = 0;
-            loop {
-                if i >= deps.len() {
-                    break;
-                }
-                let dep = deps.get(i);
-                compile_cmd.push_str("-I ");
-                compile_cmd.push_str(dep.as_str());
-                compile_cmd.push_str(" ");
-                i = i + 1;
-            }
-        }
-    }
+    compile_cmd.push_str("-I ~/.mantis/pkgcache/std-0.1.0 -I ~/.mantis/pkgcache/libc-0.1.0 ");
 
     compile_cmd.push_str(entry.as_str());
-    compile_cmd.push_str(" -o target/main.o");
+    compile_cmd.push_str(" -o ");
+    compile_cmd.push_str(debug_dir.as_str());
+    compile_cmd.push_str("/main.o");
 
     print_str("   Compiling ");
     print_str(proj_name.as_str());
@@ -201,12 +233,14 @@ fn handle_build() i32 {
         return comp_status;
     }
 
-    print_str("     Linking target/main.o -> ");
+    print_str("     Linking dependencies + main.o -> ");
     print_str(target_out.as_str());
     print_str(" ...\n");
 
-    let mut link_cmd = String.with_capacity(256);
-    link_cmd.push_str("cc target/main.o -o ");
+    let mut link_cmd = String.with_capacity(512);
+    link_cmd.push_str("cc ~/.mantis/pkgcache/*/*.o ");
+    link_cmd.push_str(debug_dir.as_str());
+    link_cmd.push_str("/main.o -Wl,--allow-multiple-definition -o ");
     link_cmd.push_str(target_out.as_str());
     link_cmd.push_str(" -lpthread -lm -ldl");
 
@@ -216,52 +250,28 @@ fn handle_build() i32 {
         return link_status;
     }
 
-    print_str("    Finished dev [unoptimized] target(s) in ");
+    print_str("    Finished dev [unoptimized] build in ");
     print_str(target_out.as_str());
     print_str("\n");
     return 0;
 }
 
-fn handle_run(args Vec[String]) i32 {
+fn handle_run() i32 {
     let build_res = handle_build();
     if build_res != 0 {
         return build_res;
     }
 
-    let mut target_out = String.from_str("target/main");
-    if std.fs.exists("mantis.toml") {
-        let toml_res = std.fs.read_to_string("mantis.toml");
-        if toml_res.is_ok() {
-            let content = toml_res.unwrap();
-            let doc = Toml.parse(content.as_str());
-            target_out = doc.get_or("build", "target", "target/main");
-        }
-    }
-
+    let mut target_out = String.new();
+    let debug_dir = debug_root();
+    target_out.push_str(debug_dir.as_str());
+    target_out.push_str("/main");
     print_str("     Running `");
     print_str(target_out.as_str());
     print_str("`\n\n");
     
     let mut run_cmd = String.with_capacity(256);
-    let tgt_str = target_out.as_str();
-    if tgt_str.len > 0 {
-        let first_byte = @(tgt_str.pointer as @u8);
-        if first_byte != 47 { // '/'
-            run_cmd.push_str("./");
-        }
-    }
     run_cmd.push_str(target_out.as_str());
-
-    let mut i = 2;
-    loop {
-        if i >= args.len() {
-            break;
-        }
-        run_cmd.push_str(" ");
-        let arg = args.get(i);
-        run_cmd.push_str(arg.as_str());
-        i = i + 1;
-    }
 
     return exec_cmd(run_cmd.as_str());
 }
@@ -269,14 +279,13 @@ fn handle_run(args Vec[String]) i32 {
 // ── Main Entry Point ────────────────────────────────────────────────────────
 
 fn main() i32 {
-    let args = std.env.args();
-    if args.size <= 1 {
+    let argc = libc.mantis_get_argc();
+    if argc <= 1 {
         print_help();
         return 0;
     }
 
-    let subcmd_ptr = (args.ptr as i64 + 24) as @String;
-    let subcmd = subcmd_ptr.as_str();
+    let subcmd = arg_slice(1);
 
     if subcmd == "help" {
         print_help();
@@ -305,12 +314,11 @@ fn main() i32 {
     }
 
     if subcmd == "new" {
-        if args.len() < 3 {
+        if argc < 3 {
             print_str("error: `mantis new` requires a project name. Example: mantis new my_app\n");
             return 1;
         }
-        let name_str = args.get(2);
-        return handle_new(name_str.as_str());
+        return handle_new(arg_slice(2));
     }
 
     if subcmd == "init" {
@@ -322,7 +330,7 @@ fn main() i32 {
     }
 
     if subcmd == "run" {
-        return handle_run(args);
+        return handle_run();
     }
 
     if subcmd == "check" {

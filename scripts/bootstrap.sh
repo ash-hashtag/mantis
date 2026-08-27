@@ -2,57 +2,57 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+for arg in "$@"; do
+    case "$arg" in
+        --debug) DEBUG=1 ;;
+        *) echo "usage: $0 [--debug]" >&2; exit 2 ;;
+    esac
+done
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/target}"
-mkdir -p "$TARGET_DIR"
+MANTIS_TARGET_DIR="${MANTIS_TARGET_DIR:-$REPO_ROOT/build}"
+PROFILE=release
+PROFILE_FLAGS=(--release)
+if [ "$DEBUG" -eq 1 ]; then
+    PROFILE=debug
+    PROFILE_FLAGS=()
+fi
+BUILD_DIR="$MANTIS_TARGET_DIR/$PROFILE"
+PKGCACHE="${HOME}/.mantis/pkgcache"
+mkdir -p "$TARGET_DIR" "$BUILD_DIR" "$PKGCACHE"
 
-echo "=== 1. Building mantisc (Rust bootstrap compiler) ==="
-cargo build --bin mantisc
-
-MANTISC="$TARGET_DIR/debug/mantisc"
-if [ ! -f "$MANTISC" ]; then
-    MANTISC="$REPO_ROOT/target/debug/mantisc"
+echo "=== 1. Building mantisc ($PROFILE) ==="
+cargo build "${PROFILE_FLAGS[@]}" --bin mantisc
+MANTISC="$TARGET_DIR/$PROFILE/mantisc"
+if [ ! -x "$MANTISC" ]; then
+    MANTISC="$REPO_ROOT/target/$PROFILE/mantisc"
 fi
 
-echo "=== 2. Compiling self-hosted packages ==="
-# packages/libc -> target/libc.o
-echo "Compiling libc..."
-"$MANTISC" -c "$REPO_ROOT/packages/libc/src/lib.ms" \
-    -I "$REPO_ROOT/packages" \
-    -o "$TARGET_DIR/libc.o"
+echo "=== 2. Installing built-in packages ==="
+rm -rf "$PKGCACHE/libc-0.1.0" "$PKGCACHE/std-0.1.0" "$PKGCACHE/toml-0.1.0"
+cp -r "$REPO_ROOT/packages/libc" "$PKGCACHE/libc-0.1.0"
+cp -r "$REPO_ROOT/packages/std" "$PKGCACHE/std-0.1.0"
+cp -r "$REPO_ROOT/packages/toml" "$PKGCACHE/toml-0.1.0"
 
-# packages/std -> target/std.o
-echo "Compiling std..."
-"$MANTISC" -c "$REPO_ROOT/packages/std/src/lib.ms" \
-    -I "$REPO_ROOT/packages" \
-    -o "$TARGET_DIR/std.o"
+echo "=== 3. Compiling built-in packages ($PROFILE) ==="
+"$MANTISC" -c "$REPO_ROOT/packages/libc/src/lib.ms" -I "$REPO_ROOT/packages" -o "$BUILD_DIR/libc.o"
+"$MANTISC" -c "$REPO_ROOT/packages/std/src/lib.ms" -I "$REPO_ROOT/packages" -o "$BUILD_DIR/std.o"
+"$MANTISC" -c "$REPO_ROOT/packages/toml/src/lib.ms" -I "$REPO_ROOT/packages" -o "$BUILD_DIR/toml.o"
+cp -f "$BUILD_DIR/libc.o" "$PKGCACHE/libc-0.1.0/libc.o"
+cp -f "$BUILD_DIR/std.o" "$PKGCACHE/std-0.1.0/std.o"
+cp -f "$BUILD_DIR/toml.o" "$PKGCACHE/toml-0.1.0/toml.o"
 
-# packages/toml -> target/toml.o
-echo "Compiling toml..."
-"$MANTISC" -c "$REPO_ROOT/packages/toml/src/lib.ms" \
-    -I "$REPO_ROOT/packages" \
-    -o "$TARGET_DIR/toml.o"
+echo "=== 4. Compiling self-hosted CLI ($PROFILE) ==="
+"$MANTISC" -c "$REPO_ROOT/packages/cli/src/main.ms" -I "$REPO_ROOT/packages" -o "$BUILD_DIR/cli.o"
+CC_FLAGS=()
+[ "$PROFILE" = release ] && CC_FLAGS=(-O2)
+cc "${CC_FLAGS[@]}" -no-pie "$BUILD_DIR/cli.o" "$BUILD_DIR/libc.o" -lc -lpthread -lm -o "$TARGET_DIR/mantis"
 
-# packages/cli -> target/cli.o
-echo "Compiling cli..."
-"$MANTISC" -c "$REPO_ROOT/packages/cli/src/main.ms" \
-    -I "$REPO_ROOT/packages" \
-    -o "$TARGET_DIR/cli.o"
-
-echo "=== 3. Linking self-hosted mantis binary ==="
-cc -no-pie \
-    "$TARGET_DIR/cli.o" \
-    "$TARGET_DIR/libc.o" \
-    -lc -lpthread -lm \
-    -o "$TARGET_DIR/mantis"
-
-echo "=== 4. Installing to ~/.mantis/ ==="
+echo "=== 5. Installing mantis ($PROFILE) ==="
 mkdir -p "$HOME/.mantis/bin" "$HOME/.mantis/packages"
 cp -f "$MANTISC" "$HOME/.mantis/bin/mantisc"
 cp -f "$TARGET_DIR/mantis" "$HOME/.mantis/bin/mantis"
 cp -rf "$REPO_ROOT/packages/"* "$HOME/.mantis/packages/"
-
-echo "=== 5. Verifying self-hosted mantis CLI ==="
 "$TARGET_DIR/mantis" version
-"$TARGET_DIR/mantis" help
-
-echo "=== Bootstrapping complete! mantis binary is at $TARGET_DIR/mantis ==="
+echo "=== Bootstrap complete: $TARGET_DIR/mantis ($PROFILE) ==="

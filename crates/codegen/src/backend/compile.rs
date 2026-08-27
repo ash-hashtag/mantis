@@ -572,6 +572,10 @@ pub fn compile_binary(
         if !include_dirs.contains(&mantis_root) {
             include_dirs.push(mantis_root);
         }
+        let mantis_pkgcache = format!("{}/.mantis/pkgcache", home);
+        if !include_dirs.contains(&mantis_pkgcache) {
+            include_dirs.push(mantis_pkgcache);
+        }
     }
 
     if let Ok(std_env) = std::env::var("MANTIS_STD") {
