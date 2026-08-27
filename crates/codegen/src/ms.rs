@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use crate::registries::types::MsTypeId;
 use cranelift::{
     codegen::ir::Inst,
@@ -31,7 +32,7 @@ pub struct MsContext {
     pub current_module: MsModule,
     pub disable_auto_drop: bool,
     pub instantiation_queue: Vec<MsInstantiation>,
-    pub globals: HashMap<Box<str>, MsGlobal>,
+    pub globals: HashMap<Cow<'static, str>, MsGlobal>,
     pub config: crate::config::MantisConfig,
 }
 

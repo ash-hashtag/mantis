@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::{
     collections::{BTreeMap, HashMap},
     rc::Rc,
@@ -231,16 +232,16 @@ impl MsStructType {
         module: &mut ObjectModule,
         ms_ctx: &MsContext,
     ) {
-        let func_id = ms_ctx
+        let func = ms_ctx
             .current_module
-            .fn_registry
-            .registry
-            .get("memcpy")
-            .unwrap()
-            .func_id;
+            .find_function("memcpy")
+            .unwrap();
 
-        let func_ref = module.declare_func_in_func(func_id, fbx.func);
+        let func_ref = module.declare_func_in_func(func.func_id, fbx.func);
         let size = fbx.ins().iconst(types::I64, self.size() as i64);
+        let zero = fbx.ins().iconst(types::I64, 0);
+        let sig = fbx.func.dfg.ext_funcs[func_ref].signature;
+        let param_count = fbx.func.dfg.signatures[sig].params.len();
         fbx.ins().call(func_ref, &[dest, src, size]);
     }
 }
@@ -287,7 +288,14 @@ pub fn call_memcpy(
         unreachable!();
     };
     let func_ref = module.declare_func_in_func(func, fbx.func);
-    fbx.ins().call(func_ref, &[dest, src, size]);
+    let zero = fbx.ins().iconst(types::I64, 0);
+    let sig = fbx.func.dfg.ext_funcs[func_ref].signature;
+    let param_count = fbx.func.dfg.signatures[sig].params.len();
+    if param_count == 4 {
+        fbx.ins().call(func_ref, &[dest, zero, src, size]);
+    } else {
+        fbx.ins().call(func_ref, &[dest, src, size]);
+    }
 }
 
 #[derive(Clone, Debug, Default)]

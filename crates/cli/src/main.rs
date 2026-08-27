@@ -70,6 +70,10 @@ struct Args {
     #[arg(long, short = 'r')]
     run: bool,
 
+    /// Compile only to object file (.o), do not invoke linker
+    #[arg(short = 'c', long = "compile-only")]
+    compile_only: bool,
+
     /// Check syntax and types without generating binary
     #[arg(long)]
     check: bool,
@@ -244,6 +248,10 @@ fn handle0(args: Args) {
             bytes.len(),
             obj_file_path
         );
+    }
+
+    if args.compile_only {
+        return;
     }
 
     #[cfg(unix)]

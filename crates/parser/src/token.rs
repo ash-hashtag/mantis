@@ -48,7 +48,7 @@ impl fmt::Display for Span {
 
 #[derive(Logos, Clone, Debug, PartialEq)]
 #[logos(skip r"[ \t\r\n\f]+")]
-pub enum Token {
+pub enum TokenKind<'a> {
     // ── Keywords ──────────────────────────────────────────────
     #[token("pub")]
     Pub,
@@ -119,7 +119,7 @@ pub enum Token {
     Float(f64),
 
     #[regex(r#""([^"\\]|\\["\\bnfrt0]|\\u[a-fA-F0-9]{4})*""#, parse_string)]
-    String(std::string::String),
+    String(&'a str),
 
     #[regex(r"'[^']'", |lex| {
         let s = lex.slice();
@@ -140,14 +140,14 @@ pub enum Token {
     Char(char),
 
     // ── Identifiers ──────────────────────────────────────────
-    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_owned(), priority = 1)]
-    Ident(std::string::String),
+    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice(), priority = 1)]
+    Ident(&'a str),
 
-    #[regex(r"#[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice()[1..].to_owned())]
-    CompilerFn(std::string::String),
+    #[regex(r"#[a-zA-Z_][a-zA-Z0-9_]*", |lex| &lex.slice()[1..])]
+    CompilerFn(&'a str),
 
-    #[regex(r"\$[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice()[1..].to_owned())]
-    CompileTimeType(std::string::String),
+    #[regex(r"\$[a-zA-Z_][a-zA-Z0-9_]*", |lex| &lex.slice()[1..])]
+    CompileTimeType(&'a str),
 
     // ── Operators (multi-char first) ─────────────────────────
     #[token("@=")]
@@ -227,7 +227,12 @@ pub enum Token {
     Comment,
 }
 
-fn parse_string(lex: &mut logos::Lexer<'_, Token>) -> std::string::String {
+fn parse_string<'a>(lex: &mut logos::Lexer<'a, TokenKind<'a>>) -> &'a str {
+    let s = lex.slice();
+    let inner = &s[1..s.len() - 1];
+    if !inner.contains("\\") {
+        return inner;
+    }
     let s = lex.slice();
     // Strip surrounding quotes
     let inner = &s[1..s.len() - 1];
@@ -254,11 +259,12 @@ fn parse_string(lex: &mut logos::Lexer<'_, Token>) -> std::string::String {
             result.push(c);
         }
     }
-    result
+    Box::leak(result.into_boxed_str())
 }
 
 /// A token with its span in the source text.
-#[derive(Clone, Debug)]
+pub type Token = TokenKind<'static>;
+
 pub struct SpannedToken {
     pub token: Token,
     pub span: Span,
@@ -272,7 +278,8 @@ impl SpannedToken {
 
 /// Tokenize source into a vec of spanned tokens.
 pub fn tokenize(source: &str) -> Result<Vec<SpannedToken>, LexError> {
-    let mut lexer = Token::lexer(source);
+    let source: &'static str = Box::leak(source.to_string().into_boxed_str());
+    let mut lexer = TokenKind::lexer(source);
     let mut tokens = Vec::new();
     while let Some(result) = lexer.next() {
         match result {
@@ -284,7 +291,7 @@ pub fn tokenize(source: &str) -> Result<Vec<SpannedToken>, LexError> {
                 let span = Span::from_range(lexer.span());
                 return Err(LexError {
                     span,
-                    slice: source[span.start..span.end].to_owned(),
+                    slice: &source[span.start..span.end],
                 });
             }
         }
@@ -295,7 +302,7 @@ pub fn tokenize(source: &str) -> Result<Vec<SpannedToken>, LexError> {
 #[derive(Debug)]
 pub struct LexError {
     pub span: Span,
-    pub slice: std::string::String,
+    pub slice: &'static str,
 }
 
 impl fmt::Display for LexError {

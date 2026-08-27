@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::{
     collections::HashMap,
     fs::FileType,
@@ -29,7 +30,7 @@ use super::{
 
 #[derive(Default, Debug)]
 pub struct MsModuleRegistry {
-    pub registry: HashMap<Box<str>, MsModule>, // path of module -> Registries
+    pub registry: HashMap<Cow<'static, str>, MsModule>, // path of module -> Registries
 }
 
 #[derive(Default, Debug)]
@@ -42,7 +43,7 @@ pub struct MsModule {
     pub type_templates: MsTypeTemplates,
     pub type_fn_registry: MsTypeMethodRegistry,
     pub trait_generic_templates: MsTraitGenericTemplates,
-    pub submodules: HashMap<Box<str>, MsModule>,
+    pub submodules: HashMap<Cow<'static, str>, MsModule>,
     pub aliased_types: HashMap<TypeNameWithGenerics, MsTypeWithId>,
 }
 
@@ -54,7 +55,7 @@ pub enum MsResolved {
     Type(MsTypeWithId),
     TypeRef(MsTypeWithId, bool),
     Generic(Rc<MsGenericTemplate>),
-    EnumUnwrap(MsTypeWithId, Box<str>), // enum_ty and variant name
+    EnumUnwrap(MsTypeWithId, Cow<'static, str>), // enum_ty and variant name
     GenericFunctionInstantiation(MsGenericFunction, Vec<MsResolved>),
     GenericFunction(MsGenericFunction),
 }
@@ -74,6 +75,100 @@ impl MsResolved {
 }
 
 impl MsModule {
+    pub fn find_type(&self, name: &str) -> Option<MsTypeWithId> {
+        if let Some(ty) = self.type_registry.get_from_str(name) {
+            return Some(ty.clone());
+        }
+        for sub in self.submodules.values() {
+            if let Some(ty) = sub.find_type(name) {
+                return Some(ty);
+            }
+        }
+        None
+    }
+
+    pub fn find_any_type_fn(&self, fn_name: &str) -> Option<Rc<MsDeclaredFunction>> {
+        for reg in self.type_fn_registry.map.values() {
+            if let Some(func) = reg.registry.get(fn_name) {
+                return Some(func.clone());
+            }
+        }
+        for sub in self.submodules.values() {
+            if let Some(func) = sub.find_any_type_fn(fn_name) {
+                return Some(func);
+            }
+        }
+        None
+    }
+
+    pub fn find_type_fn_by_name(&self, type_name_prefix: &str, fn_name: &str) -> Option<Rc<MsDeclaredFunction>> {
+        for (ty_id, reg) in &self.type_fn_registry.map {
+            if let Some(ty_name) = self.type_registry.name_of(*ty_id) {
+                if ty_name == type_name_prefix || ty_name.starts_with(&format!("{}[", type_name_prefix)) {
+                    if let Some(func) = reg.registry.get(fn_name) {
+                        return Some(func.clone());
+                    }
+                }
+            }
+        }
+        for sub in self.submodules.values() {
+            if let Some(func) = sub.find_type_fn_by_name(type_name_prefix, fn_name) {
+                return Some(func);
+            }
+        }
+        None
+    }
+
+    pub fn find_type_fn(&self, ty_id: MsTypeId, fn_name: &str) -> Option<Rc<MsDeclaredFunction>> {
+        if let Some(reg) = self.type_fn_registry.map.get(&ty_id) {
+            if let Some(func) = reg.registry.get(fn_name) {
+                return Some(func.clone());
+            }
+        }
+        for sub in self.submodules.values() {
+            if let Some(func) = sub.find_type_fn(ty_id, fn_name) {
+                return Some(func);
+            }
+        }
+        None
+    }
+
+    pub fn find_fn_template(&self, name: &str) -> Option<MsGenericFunction> {
+        if let Some(t) = self.fn_templates.registry.get(name) {
+            return Some(t.clone());
+        }
+        for sub in self.submodules.values() {
+            if let Some(t) = sub.find_fn_template(name) {
+                return Some(t);
+            }
+        }
+        None
+    }
+
+    pub fn find_function(&self, name: &str) -> Option<Rc<MsDeclaredFunction>> {
+        if let Some(f) = self.fn_registry.registry.get(name) {
+            return Some(f.clone());
+        }
+        for sub in self.submodules.values() {
+            if let Some(f) = sub.find_function(name) {
+                return Some(f);
+            }
+        }
+        None
+    }
+
+    pub fn find_type_template(&self, name: &str) -> Option<Rc<MsGenericTemplate>> {
+        if let Some(t) = self.type_templates.registry.get(name) {
+            return Some(t.clone());
+        }
+        for sub in self.submodules.values() {
+            if let Some(t) = sub.find_type_template(name) {
+                return Some(t);
+            }
+        }
+        None
+    }
+
     pub fn clear_aliases(&mut self) {
         self.aliased_types.clear();
     }
@@ -164,17 +259,26 @@ impl MsModule {
                         return Some(MsResolved::Function(func.clone()));
                     }
                 }
+                if let Type::Nested(root, child) = &**base {
+                    let gen_expr = Type::Generic(root.clone(), generics.clone());
+                    if let Some(MsResolved::Type(ty)) = self.resolve(&gen_expr) {
+                        if let Some(variant_name) = child.as_name() {
+                            return Some(MsResolved::EnumUnwrap(ty, Cow::Owned(variant_name.to_string())));
+                        }
+                    }
+                }
                 {
                     let key = type_name.as_name().unwrap_or_default().to_string();
 
-                    if let Some(template) = self.type_templates.registry.get(key.as_str()).cloned()
+                    let template_opt = self.find_type_template(key.as_str());
+                    if let Some(template) = template_opt
                     {
                         log::info!("found template {}, generating struct", key);
-                        let mut real_types = HashMap::<Box<str>, MsTypeWithId>::new();
+                        let mut real_types = HashMap::<Cow<'static, str>, MsTypeWithId>::new();
 
                         for (generic_name, ty) in template.generics.iter().zip(generics.iter()) {
                             if let Some(real_ty) = self.resolve(ty).and_then(|r| r.ty()) {
-                                real_types.insert(generic_name.as_ref().into(), real_ty);
+                                real_types.insert(generic_name.clone(), real_ty);
                             }
                         }
                         let generated_type = template.generate(&real_types, self);
@@ -195,8 +299,8 @@ impl MsModule {
             }
             Type::Named(ident) => {
                 let key = ident.name.as_str();
-                if let Some(ty) = self.type_registry.get_from_str(key) {
-                    return Some(MsResolved::Type(ty.clone()));
+                if let Some(ty) = self.find_type(key) {
+                    return Some(MsResolved::Type(ty));
                 }
                 if key.starts_with('$') {
                     let real_name = match &key[1..] {
@@ -244,17 +348,74 @@ impl MsModule {
                 return None;
             }
             Type::Nested(root, child) => {
-                if let Some(MsResolved::Type(ty)) = self.resolve(root) {
+                let ty_opt = self.resolve(root).and_then(|r| r.ty()).or_else(|| {
+                    let key = root.as_name()?;
+                    let template = self.find_type_template(key)?;
+                    let mut real_types = HashMap::new();
+                    for gen_name in &template.generics {
+                        if let Some(dummy_ty) = self.type_registry.get_from_str("i64") {
+                            real_types.insert(gen_name.clone(), dummy_ty);
+                        }
+                    }
+                    Some(template.generate(&real_types, self))
+                });
+
+                if let Some(ty) = ty_opt {
                     match &ty.ty {
                         MsType::Enum(_) => {
-                            let variant_name = child.as_name()?;
-                            return Some(MsResolved::EnumUnwrap(ty, variant_name.into()));
+                            if let Some(variant_name) = child.as_name() {
+                                return Some(MsResolved::EnumUnwrap(ty.clone(), Cow::Owned(variant_name.to_string())));
+                            }
                         }
                         _ => {}
                     }
-                    if let Some(reg) = self.type_fn_registry.map.get(&ty.id) {
-                        if let Some(func) = reg.registry.get(child.as_name()?) {
-                            return Some(MsResolved::Function(func.clone()));
+                    if let Some(child_name) = child.as_name() {
+                        if let Some(func) = self.find_type_fn(ty.id, child_name) {
+                            return Some(MsResolved::Function(func));
+                        }
+                        if let Some(root_name) = root.as_name() {
+                            if let Some(func) = self.find_type_fn_by_name(root_name, child_name) {
+                                return Some(MsResolved::Function(func));
+                            }
+                        }
+                        if let Some(func) = self.find_any_type_fn(child_name) {
+                            return Some(MsResolved::Function(func));
+                        }
+                        if let Some(func) = self.find_function(child_name) {
+                            return Some(MsResolved::Function(func));
+                        }
+                        if let Some(template) = self.find_fn_template(child_name) {
+                            return Some(MsResolved::GenericFunction(template));
+                        }
+                    }
+                }
+
+                fn flatten_type_path(t: &Type) -> String {
+                    match t {
+                        Type::Named(id) => id.name.to_string(),
+                        Type::Nested(r, c) => format!("{}.{}", flatten_type_path(r), flatten_type_path(c)),
+                        Type::Generic(base, _) => flatten_type_path(base),
+                        _ => String::new(),
+                    }
+                }
+                let full_fn_name = format!("{}.{}", flatten_type_path(root), flatten_type_path(child));
+                if let Some(template) = self.find_fn_template(full_fn_name.as_str()) {
+                    return Some(MsResolved::GenericFunction(template));
+                }
+                if let Some(func) = self.find_function(full_fn_name.as_str()) {
+                    return Some(MsResolved::Function(func));
+                }
+
+                let parts: Vec<&str> = full_fn_name.split('.').collect();
+                if parts.len() > 1 {
+                    if let Some(sub) = self.submodules.get_mut(parts[0]) {
+                        let remaining = parts[1..].join(".");
+                        let rem_child = mantis_parser::ast::Ident::new(
+                            &remaining,
+                            mantis_parser::token::Span::new(0, 0),
+                        );
+                        if let Some(res) = sub.resolve(&Type::Named(rem_child)) {
+                            return Some(res);
                         }
                     }
                 }
@@ -269,17 +430,17 @@ impl MsModule {
                         if enum_gen.map.contains_key(variant_name) {
                             let mut real_types = HashMap::new();
                             for gen_name in &template.generics {
-                                let gen_key = TypeNameWithGenerics::new(gen_name.clone(), vec![]);
+                                let gen_key = TypeNameWithGenerics::new(Cow::Owned(gen_name.to_string()), vec![]);
                                 if let Some(aliased) = self.aliased_types.get(&gen_key) {
-                                    real_types.insert(gen_name.clone(), aliased.clone());
+                                    real_types.insert(Cow::Owned(gen_name.to_string()), aliased.clone());
                                 } else if let Some(dummy_ty) =
                                     self.type_registry.get_from_str("i64")
                                 {
-                                    real_types.insert(gen_name.clone(), dummy_ty);
+                                    real_types.insert(Cow::Owned(gen_name.to_string()), dummy_ty);
                                 }
                             }
                             let enum_ty = template.generate(&real_types, self);
-                            return Some(MsResolved::EnumUnwrap(enum_ty, variant_name.into()));
+                            return Some(MsResolved::EnumUnwrap(enum_ty, Cow::Owned(variant_name.to_string())));
                         }
                     }
                 }
@@ -339,13 +500,13 @@ impl MsModule {
     pub fn resolve_with_generics(
         &mut self,
         type_name: &Type,
-        root_generics: &[Box<str>],
+        root_generics: &[Cow<'static, str>],
     ) -> MsGenericTemplate {
         match type_name {
             Type::Generic(_, _) | Type::Named(_) => {
                 let name = type_name.as_name().unwrap_or("alias");
                 let template = MsGenericTemplate {
-                    name: name.into(),
+                    name: Cow::Owned(name.to_string()),
                     generics: root_generics.to_vec(),
                     inner_type: MsGenericTemplateInner::Type(
                         TypeNameWithGenerics::from_type(type_name).unwrap(),
@@ -393,7 +554,7 @@ pub fn resolve_module_by_path(
             }
         }
         if base.is_dir() {
-            for sub in &["mod.ms", "lib.ms", "main.ms"] {
+            for sub in &["mod.ms", "lib.ms", "main.ms", "src/lib.ms", "src/main.ms", "src/mod.ms"] {
                 let p = base.join(sub);
                 if p.is_file() {
                     if let Ok(content) = std::fs::read_to_string(&p) {

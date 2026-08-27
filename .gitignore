@@ -4,3 +4,4 @@
 main
 .pnpm-store/
 node_modules/
+.ruff_cache

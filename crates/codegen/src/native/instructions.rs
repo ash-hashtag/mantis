@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use cranelift::prelude::*;
 use cranelift_module::{DataDescription, FuncOrDataId, Linkage, Module};
 use cranelift_object::ObjectModule;
@@ -22,7 +23,7 @@ pub enum NodeResult {
         offset: usize,
         ty_id: MsTypeId,
     },
-    EnumUnwrap(MsTypeWithId, Box<str>),
+    EnumUnwrap(MsTypeWithId, Cow<'static, str>),
     TypeRef(MsTypeWithId),
 }
 

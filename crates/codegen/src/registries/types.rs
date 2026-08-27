@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Display,
@@ -222,7 +223,7 @@ impl MsNativeType {
     pub fn cast_to(&self, lhs: Value, r: &MsType, fbx: &mut FunctionBuilder) -> Value {
         let rnty = match r {
             MsType::Native(nty) => nty,
-            MsType::Function(_) | MsType::Ref(_, _) => return lhs,
+            MsType::Function(_) | MsType::Ref(_, _) | MsType::Struct(_) | MsType::Enum(_) => return lhs,
             _ => panic!("Non native casting not supported yet"),
         };
         let diff = r.size() as isize - self.size() as isize;
@@ -327,7 +328,7 @@ pub fn binary_cmp_op_to_condcode_intcc(op: BinaryOperation, signed: bool) -> con
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TypeNameWithGenerics {
-    pub name: Box<str>,
+    pub name: Cow<'static, str>,
     pub generics: Vec<TypeNameWithGenerics>,
     pub refs: Vec<bool>, // tracker for references, each bool is is_mut
 }
@@ -358,9 +359,9 @@ impl TypeNameWithGenerics {
         })
     }
 
-    pub fn new(name: Box<str>, inner_types: Vec<TypeNameWithGenerics>) -> Self {
+    pub fn new(name: impl Into<Cow<'static, str>>, inner_types: Vec<TypeNameWithGenerics>) -> Self {
         Self {
-            name,
+            name: name.into(),
             generics: inner_types,
             refs: vec![],
         }
@@ -368,7 +369,7 @@ impl TypeNameWithGenerics {
 
     pub fn generate(
         &self,
-        real_types: &HashMap<Box<str>, MsTypeWithId>,
+        real_types: &HashMap<Cow<'static, str>, MsTypeWithId>,
         ms_module: &mut MsModule,
     ) -> MsTypeWithId {
         if self.name.as_ref() == "__ms_fn" {
@@ -407,7 +408,7 @@ impl TypeNameWithGenerics {
             let mut next_real_types = HashMap::new();
             for (generic_name, gen_arg) in template.generics.iter().zip(self.generics.iter()) {
                 next_real_types.insert(
-                    generic_name.as_ref().into(),
+                    generic_name.clone(),
                     gen_arg.generate(real_types, ms_module),
                 );
             }
@@ -418,7 +419,7 @@ impl TypeNameWithGenerics {
             let mut next_real_types = HashMap::new();
             for (generic_name, gen_arg) in template.generics.iter().zip(self.generics.iter()) {
                 next_real_types.insert(
-                    generic_name.as_ref().into(),
+                    generic_name.clone(),
                     gen_arg.generate(real_types, ms_module),
                 );
             }
@@ -442,7 +443,7 @@ impl TypeNameWithGenerics {
     pub fn from_type(ty: &TypeExpr) -> Option<Self> {
         match ty {
             TypeExpr::Generic(base, generics) => Some(Self {
-                name: Box::<str>::from(base.as_name().unwrap_or("")),
+                name: Cow::Owned(base.as_name().unwrap_or("").to_string()),
                 generics: generics
                     .iter()
                     .map(Self::from_type)
@@ -450,7 +451,7 @@ impl TypeNameWithGenerics {
                 refs: vec![],
             }),
             TypeExpr::Named(ident) => Some(Self {
-                name: ident.name.clone().into_boxed_str(),
+                name: Cow::Owned(ident.name.clone()),
                 generics: vec![],
                 refs: vec![],
             }),
@@ -493,20 +494,20 @@ impl TypeNameWithGenerics {
 
 #[derive(Clone, Debug, Default)]
 pub struct EnumWithGenerics {
-    pub map: LinearMap<Box<str>, Option<TypeNameWithGenerics>>,
+    pub map: LinearMap<Cow<'static, str>, Option<TypeNameWithGenerics>>,
 }
 
 impl EnumWithGenerics {
     fn generate(
         &self,
-        real_types: &HashMap<Box<str>, MsTypeWithId>,
+        real_types: &HashMap<Cow<'static, str>, MsTypeWithId>,
         ms_module: &mut MsModule,
         ty_name: &str,
     ) -> MsTypeWithId {
         let mut enum_ty = MsEnumType::default();
         for (field_name, field_ty) in &self.map {
             if let Some(field_ty) = field_ty {
-                let ty = field_ty.generate(&real_types, ms_module);
+                let ty = field_ty.generate(real_types, ms_module);
                 enum_ty.add_variant(field_name.clone(), Some(ty));
             } else {
                 enum_ty.add_variant(field_name.clone(), None);
@@ -525,25 +526,25 @@ impl EnumWithGenerics {
 
 #[derive(Clone, Debug, Default)]
 pub struct StructWithGenerics {
-    pub map: LinearMap<Box<str>, TypeNameWithGenerics>,
+    pub map: LinearMap<Cow<'static, str>, TypeNameWithGenerics>,
 }
 impl StructWithGenerics {
     fn generate(
         &self,
-        real_types: &HashMap<Box<str>, MsTypeWithId>,
+        real_types: &HashMap<Cow<'static, str>, MsTypeWithId>,
         ms_module: &mut MsModule,
         ty_name: &str,
     ) -> MsTypeWithId {
         let mut struct_ty = MsStructType::default();
 
         for (field_name, field_ty) in &self.map {
-            let ty = field_ty.generate(&real_types, ms_module);
+            let ty = field_ty.generate(real_types, ms_module);
             struct_ty.add_field(field_name.clone(), ty);
         }
 
         let ty = MsType::Struct(Rc::new(struct_ty));
 
-        let id = ms_module.type_registry.add_type(ty_name, ty.clone());
+        let id = ms_module.type_registry.add_type(Cow::Owned(ty_name.to_string()), ty.clone());
 
         return MsTypeWithId { ty, id };
     }
@@ -564,7 +565,7 @@ pub struct FunctionWithGenerics {
 impl FunctionWithGenerics {
     fn generte(
         &self,
-        real_types: &&HashMap<Box<str>, MsTypeWithId>,
+        real_types: &&HashMap<Cow<'static, str>, MsTypeWithId>,
         ms_module: &mut MsModule,
     ) -> MsTypeWithId {
         todo!()
@@ -573,21 +574,22 @@ impl FunctionWithGenerics {
 
 #[derive(Clone, Debug)]
 pub struct MsGenericTemplate {
-    pub name: Box<str>,
-    pub generics: Vec<Box<str>>,
+    pub name: Cow<'static, str>,
+    pub generics: Vec<Cow<'static, str>>,
     pub inner_type: MsGenericTemplateInner,
 }
 
 impl MsGenericTemplate {
-    pub fn add_generic(&mut self, s: impl Into<String>) {
-        let s: String = s.into();
-        assert!(!self.generics.contains(&s.clone().into_boxed_str()));
-        self.generics.push(s.into_boxed_str());
+    pub fn add_generic(&mut self, s: impl Into<Cow<'static, str>>) {
+        let s: Cow<'static, str> = s.into();
+        let s: Cow<'static, str> = s.into();
+        assert!(!self.generics.contains(&s));
+        self.generics.push(s);
     }
 
     pub fn generate(
         &self,
-        real_types: &HashMap<Box<str>, MsTypeWithId>,
+        real_types: &HashMap<Cow<'static, str>, MsTypeWithId>,
         ms_module: &mut MsModule,
     ) -> MsTypeWithId {
         let mut full_name = self.name.to_string();
@@ -597,11 +599,15 @@ impl MsGenericTemplate {
                 if i > 0 {
                     full_name.push_str(", ");
                 }
+                let default_i64 = MsTypeWithId {
+                    id: ms_module.type_registry.get_from_str("i64").map(|t| t.id).unwrap_or(MsTypeId(0)),
+                    ty: crate::registries::types::MsType::Native(crate::registries::types::MsNativeType::I64),
+                };
                 let arg_ty = match real_types.get(arg_name) {
                     Some(t) => t,
                     None => {
-                        log::warn!("template {} missing generic {} in {:?}; defaulting to i64", self.name, arg_name, real_types.keys().collect::<Vec<_>>());
-                        return MsTypeWithId { id: ms_module.type_registry.get_from_str("i64").map(|t| t.id).unwrap_or(MsTypeId(0)), ty: crate::registries::types::MsType::Native(crate::registries::types::MsNativeType::I64) };
+                        log::warn!("template {} missing generic {}; defaulting generic parameter to i64", self.name, arg_name);
+                        &default_i64
                     }
                 };
                 full_name.push_str(&format!("{}", arg_ty.id.0)); // Use ID to be unique and short
@@ -621,7 +627,7 @@ impl MsGenericTemplate {
 impl FunctionWithGenerics {
     fn generate(
         &self,
-        _real_types: &HashMap<Box<str>, MsTypeWithId>,
+        _real_types: &HashMap<Cow<'static, str>, MsTypeWithId>,
         _ms_module: &mut MsModule,
     ) -> MsTypeWithId {
         todo!()
@@ -805,7 +811,7 @@ pub struct MsTypeWithId {
 
 impl MsTypeNameRegistry {
     pub fn get_from_str(&self, s: &str) -> Option<MsTypeWithId> {
-        let id = *self.map.get(&TypeNameWithGenerics::new(s.into(), vec![]))?;
+        let id = *self.map.get(&TypeNameWithGenerics::new(Cow::Owned(s.to_string()), vec![]))?;
         let ty = self.get_from_type_id(id)?;
 
         Some(MsTypeWithId { id, ty })
@@ -847,11 +853,11 @@ impl MsTypeNameRegistry {
 
     pub fn get_type_id(&self, s: &str) -> Option<MsTypeId> {
         self.map
-            .get(&TypeNameWithGenerics::new(s.into(), vec![]))
+            .get(&TypeNameWithGenerics::new(Cow::Owned(s.to_string()), vec![]))
             .cloned()
     }
-    pub fn add_type(&mut self, ty_name: impl Into<Box<str>>, ty: MsType) -> MsTypeId {
-        let ty_name_str: Box<str> = ty_name.into();
+    pub fn add_type(&mut self, ty_name: impl Into<Cow<'static, str>>, ty: MsType) -> MsTypeId {
+        let ty_name_str: Cow<'static, str> = ty_name.into();
         let ty_name = TypeNameWithGenerics {
             name: ty_name_str,
             generics: vec![],
@@ -872,8 +878,8 @@ impl MsTypeNameRegistry {
         idx
     }
 
-    pub fn add_alias(&mut self, ty_name: impl Into<Box<str>>, ty_id: MsTypeId) {
-        let ty_name: Box<str> = ty_name.into();
+    pub fn add_alias(&mut self, ty_name: impl Into<Cow<'static, str>>, ty_id: MsTypeId) {
+        let ty_name: Cow<'static, str> = ty_name.into();
         let ty_name = TypeNameWithGenerics::new(ty_name, vec![]);
         log::info!("Added Alias {:?} -> with type_id {}", ty_name, ty_id);
         if self.map.insert(ty_name, ty_id).is_some() {
@@ -972,7 +978,7 @@ impl Default for MsTemplateRegistry {
 
 #[derive(Default, Debug)]
 pub struct MsTypeTemplates {
-    pub registry: HashMap<Box<str>, Rc<MsGenericTemplate>>,
+    pub registry: HashMap<Cow<'static, str>, Rc<MsGenericTemplate>>,
 }
 
 pub trait TypeRegistryResolver {
@@ -994,19 +1000,19 @@ impl MsTypeMethodRegistry {
     pub fn add_method(
         &mut self,
         type_id: MsTypeId,
-        name: impl Into<Box<str>>,
+        name: impl Into<Cow<'static, str>>,
         func: Rc<MsDeclaredFunction>,
     ) {
         self.map
             .entry(type_id)
             .or_default()
-            .add_function(name, func);
+            .add_function(name.into(), func);
     }
 
     pub fn add_function(
         &mut self,
         type_id: MsTypeId,
-        name: impl Into<Box<str>>,
+        name: impl Into<Cow<'static, str>>,
         func: Rc<MsDeclaredFunction>,
     ) {
         self.add_method(type_id, name, func);

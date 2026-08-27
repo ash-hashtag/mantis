@@ -13,6 +13,7 @@
 //! With this in place, `Box[T]`/`Vec[T]`/`String` free their memory when the
 //! owning variable goes out of scope — no manual `.free()` required.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -95,7 +96,7 @@ pub fn ensure_drop_registered(
             {
                 // Make `Self` resolve while building the instantiated signature.
                 ms_ctx.current_module.add_alias(
-                    TypeNameWithGenerics::new("Self".into(), vec![]),
+                    TypeNameWithGenerics::new(Cow::Borrowed("Self"), vec![]),
                     MsTypeWithId {
                         id: ty_id,
                         ty: ty.clone(),
@@ -162,7 +163,7 @@ fn infer_generics_from_fields(
     ms_ctx: &mut MsContext,
     base_name: &str,
     concrete: &MsStructType,
-    generics: &[Box<str>],
+    generics: &[Cow<'static, str>],
 ) -> Option<Vec<MsResolved>> {
     let tmpl = ms_ctx
         .current_module
@@ -175,7 +176,7 @@ fn infer_generics_from_fields(
         _ => return None,
     }
 
-    let mut map: HashMap<Box<str>, MsTypeId> = HashMap::new();
+    let mut map: HashMap<Cow<'static, str>, MsTypeId> = HashMap::new();
 
     // 1. Aliases recorded while compiling the surrounding expression.
     for gen_name in generics {
@@ -370,7 +371,7 @@ pub fn ensure_type_methods(
         return false;
     }
 
-    let generics: Vec<Box<str>> = method_templates
+    let generics: Vec<Cow<'static, str>> = method_templates
         .first()
         .map(|t| t.generics.clone())
         .unwrap_or_default();
@@ -381,7 +382,7 @@ pub fn ensure_type_methods(
         
         if let Some(rts) = rts_opt {
             ms_ctx.current_module.add_alias(
-                TypeNameWithGenerics::new("Self".into(), vec![]),
+                TypeNameWithGenerics::new(Cow::Borrowed("Self"), vec![]),
                 MsTypeWithId {
                     id: ty_id,
                     ty: ty.clone(),
@@ -416,7 +417,7 @@ pub fn ensure_type_methods(
             ms_ctx
                 .current_module
                 .type_fn_registry
-                .add_function(ty_id, fname.as_str(), func);
+                .add_function(ty_id, fname, func);
         }
     }
     true

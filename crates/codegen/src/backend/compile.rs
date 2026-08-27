@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use linear_map::LinearMap;
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
@@ -464,7 +465,7 @@ pub fn compile_binary(
     let mut flag_builder = settings::builder();
     flag_builder.set("preserve_frame_pointers", "true");
     flag_builder.set("is_pic", "true");
-    flag_builder.set("use_colocated_libcalls", "false");
+    // flag_builder.set("use_colocated_libcalls", "false");
 
     let isa_builder = cranelift_native::builder().map_err(|x| anyhow::anyhow!(x))?;
     let isa = isa_builder.finish(settings::Flags::new(flag_builder))?;
@@ -528,10 +529,10 @@ pub fn compile_binary(
             .get_from_str("i64")
             .unwrap();
         let template = MsGenericTemplate {
-            name: "pointer".into(),
-            generics: vec!["T".into()],
+            name: Cow::Borrowed("pointer"),
+            generics: vec![Cow::Borrowed("T")],
             inner_type: MsGenericTemplateInner::Type(TypeNameWithGenerics::new(
-                "i64".into(),
+                Cow::Borrowed("i64"),
                 vec![],
             )),
         };
@@ -610,6 +611,9 @@ pub fn compile_binary(
                                         p.with_extension("ms"),
                                         p.join("mod.ms"),
                                         p.join("lib.ms"),
+                                        p.join("src").join("lib.ms"),
+                                        p.join("src").join("main.ms"),
+                                        p.join("src").join("mod.ms"),
                                     ];
                                     let mut found_c = String::new();
                                     for cand in &candidates {
@@ -656,6 +660,9 @@ pub fn compile_binary(
                                         p.with_extension("ms"),
                                         p.join("mod.ms"),
                                         p.join("lib.ms"),
+                                        p.join("src").join("lib.ms"),
+                                        p.join("src").join("main.ms"),
+                                        p.join("src").join("mod.ms"),
                                     ];
                                     let mut found_c = String::new();
                                     for cand in &candidates {
@@ -871,22 +878,9 @@ pub fn compile_binary(
                                 let generics = generics
                                     .iter()
                                     .map(|x| {
-                                        x.as_name()
-                                            .or_else(|| {
-                                                if let mantis_parser::ast::TypeExpr::Generic(
-                                                    base,
-                                                    _,
-                                                ) = x
-                                                {
-                                                    base.as_name()
-                                                } else {
-                                                    None
-                                                }
-                                            })
-                                            .expect("generic name error")
-                                            .into()
+                                        Cow::Owned(x.as_name().or_else(|| { if let mantis_parser::ast::TypeExpr::Generic(base, _) = x { base.as_name() } else { None } }).expect("generic name error").to_string())
                                     })
-                                    .collect::<Vec<Box<str>>>();
+                                    .collect::<Vec<Cow<'static, str>>>();
                                 let template = match &typedef.definition {
                                     TypeDefBody::Alias(ty) => Rc::new(
                                         ms_ctx.current_module.resolve_with_generics(ty, &generics),
@@ -895,12 +889,12 @@ pub fn compile_binary(
                                         let mut map = linear_map::LinearMap::new();
                                         for field in &struct_def.fields {
                                             map.insert(
-                                                field.name.name.clone().into_boxed_str(),
+                                                Cow::Owned(field.name.name.clone()),
                                                 TypeNameWithGenerics::from_type(&field.ty).unwrap(),
                                             );
                                         }
                                         Rc::new(MsGenericTemplate {
-                                            name: base.as_name().unwrap().to_string().into(),
+                                            name: Cow::Owned(base.as_name().unwrap().to_string()),
                                             generics: generics.clone(),
                                             inner_type: MsGenericTemplateInner::Struct(
                                                 StructWithGenerics { map },
@@ -921,12 +915,12 @@ pub fn compile_binary(
                                                 None
                                             };
                                             map.insert(
-                                                variant.name.name.clone().into_boxed_str(),
+                                                Cow::Owned(variant.name.name.clone()),
                                                 ty,
                                             );
                                         }
                                         Rc::new(MsGenericTemplate {
-                                            name: base.as_name().unwrap().to_string().into(),
+                                            name: Cow::Owned(base.as_name().unwrap().to_string()),
                                             generics: generics.clone(),
                                             inner_type: MsGenericTemplateInner::Enum(
                                                 EnumWithGenerics { map },
@@ -950,7 +944,7 @@ pub fn compile_binary(
                                     .current_module
                                     .type_templates
                                     .registry
-                                    .insert(key.into(), template.clone());
+                                    .insert(Cow::Owned(key.to_string()), template.clone());
                             }
                             TypeExpr::Named(ident) => {
                                 let alias = ident.name.as_str();
@@ -964,7 +958,7 @@ pub fn compile_binary(
                                             ms_ctx
                                                 .current_module
                                                 .type_registry
-                                                .add_alias(alias, ty.id);
+                                                .add_alias(Cow::Owned(alias.to_string()), ty.id);
                                         }
                                     }
                                     TypeDefBody::Struct(struct_def) => {
@@ -1008,12 +1002,12 @@ pub fn compile_binary(
                                                         );
                                                     }
                                                 });
-                                            ms_struct.add_field(field.name.name.as_str(), ty);
+                                            ms_struct.add_field(Cow::Owned(field.name.name.clone()), ty);
                                         }
                                         ms_ctx
                                             .current_module
                                             .type_registry
-                                            .add_type(alias, MsType::Struct(Rc::new(ms_struct)));
+                                            .add_type(Cow::Owned(alias.to_string()), MsType::Struct(Rc::new(ms_struct)));
                                     }
                                     TypeDefBody::Enum(enum_def) => {
                                         let mut ms_enum = MsEnumType::default();
@@ -1030,12 +1024,12 @@ pub fn compile_binary(
                                             } else {
                                                 None
                                             };
-                                            ms_enum.add_variant(variant.name.name.as_str(), ty);
+                                            ms_enum.add_variant(Cow::Owned(variant.name.name.clone()), ty);
                                         }
                                         ms_ctx
                                             .current_module
                                             .type_registry
-                                            .add_type(alias, MsType::Enum(Rc::new(ms_enum)));
+                                            .add_type(Cow::Owned(alias.to_string()), MsType::Enum(Rc::new(ms_enum)));
                                     }
                                 }
                             }
@@ -1063,12 +1057,12 @@ pub fn compile_binary(
                     .current_module
                     .trait_templates
                     .registry
-                    .insert(trait_name.into(), functions);
+                    .insert(Cow::Owned(trait_name.to_string()), functions);
                 ms_ctx
                     .current_module
                     .trait_registry
                     .registry
-                    .insert(trait_name.into(), Default::default());
+                    .insert(Cow::Owned(trait_name.to_string()), Default::default());
 
                 log::info!("Added functions of trait {}", trait_name);
             }
@@ -1121,7 +1115,7 @@ pub fn compile_binary(
                             )
                         });
                     ms_ctx.globals.insert(
-                        static_decl.name.name.clone().into_boxed_str(),
+                        Cow::Owned(static_decl.name.name.clone()),
                         crate::ms::MsGlobal {
                             data_id,
                             ty_id: ty.id,
@@ -1191,7 +1185,7 @@ pub fn compile_binary(
                             param.ty = TypeExpr::Named(mantis_parser::ast::Ident::new(
                                 &gen_name, param.span,
                             ));
-                            auto_generics.push(gen_name.into_boxed_str());
+                            auto_generics.push(gen_name.into());
                         }
                     }
                 }
@@ -1206,11 +1200,9 @@ pub fn compile_binary(
                             let generics = generics
                                 .iter()
                                 .map(|x| {
-                                    x.as_name()
-                                        .expect("generic param must be an identifier")
-                                        .into()
+                                    Cow::Owned(x.as_name().expect("generic param must be an identifier").to_string())
                                 })
-                                .collect::<Vec<Box<str>>>();
+                                .collect::<Vec<Cow<'static, str>>>();
                             (name, generics)
                         } else {
                             let name = function_decl
@@ -1243,12 +1235,38 @@ pub fn compile_binary(
                     );
                 }
             }
-            Declaration::TypeDef(_) => {}
+            Declaration::TypeDef(typedef) => {
+                let name = typedef.name.as_name().unwrap_or("alias");
+                let ty = match &typedef.definition {
+                    mantis_parser::ast::TypeDefBody::Alias(target) => {
+                        ms_ctx.current_module.resolve(target).and_then(|r| r.ty()).map(|t| t.ty)
+                    }
+                    mantis_parser::ast::TypeDefBody::Struct(struct_def) => {
+                        let mut ms_struct = crate::registries::structs::MsStructType::default();
+                        for field in &struct_def.fields {
+                            let f_ty = ms_ctx.current_module.resolve(&field.ty).and_then(|r| r.ty()).map(|t| t.ty).unwrap_or(MsType::Native(crate::registries::types::MsNativeType::I64));
+                            let f_ty_id = ms_ctx.current_module.type_registry.get_or_add_type(f_ty.clone());
+                            ms_struct.add_field(Cow::Owned(field.name.name.clone()), crate::registries::types::MsTypeWithId { id: f_ty_id, ty: f_ty });
+                        }
+                        Some(MsType::Struct(std::rc::Rc::new(ms_struct)))
+                    }
+                    mantis_parser::ast::TypeDefBody::Enum(_) => {
+                        let expr = mantis_parser::ast::TypeExpr::Named(mantis_parser::ast::Ident::new(name, typedef.span));
+                        ms_ctx.current_module.resolve(&expr).and_then(|r| r.ty()).map(|t| t.ty)
+                    }
+                }.unwrap_or_else(|| MsType::Native(crate::registries::types::MsNativeType::I64));
+                ms_ctx.current_module.type_registry.add_type(Cow::Owned(name.to_string()), ty);
+            }
             Declaration::Use(_) | Declaration::Import(_) => {}
             Declaration::Trait(_) => {}
             Declaration::Static(_) => {}
             Declaration::Impl(impl_block) => {
-                if impl_block.generics.is_empty() {
+                for gen_param in &impl_block.generics {
+                    let name = gen_param.name.as_str();
+                    let dummy_ty = MsType::Native(crate::registries::types::MsNativeType::I64);
+                    ms_ctx.current_module.type_registry.add_type(Cow::Owned(name.to_string()), dummy_ty);
+                }
+                if impl_block.generics.is_empty() || true {
                     let for_type = if let Some(ref for_ty) = impl_block.for_type {
                         ms_ctx.current_module.resolve(for_ty).unwrap().ty().unwrap()
                     } else {
@@ -1261,7 +1279,7 @@ pub fn compile_binary(
                     };
 
                     ms_ctx.current_module.add_alias(
-                        TypeNameWithGenerics::new("Self".into(), vec![]),
+                        TypeNameWithGenerics::new(Cow::Borrowed("Self"), vec![]),
                         for_type.clone(),
                     );
 
@@ -1319,7 +1337,7 @@ pub fn compile_binary(
                     let generics: Vec<Box<str>> = impl_block
                         .generics
                         .iter()
-                        .map(|g| g.name.clone().into_boxed_str())
+                        .map(|g| g.name.clone().into())
                         .collect();
 
                     let for_type_node = impl_block
@@ -1350,7 +1368,7 @@ pub fn compile_binary(
                         let func_name: Box<str> = name.into();
                         let template = MsGenericFunction {
                             decl: Rc::new(function),
-                            generics: generics.clone(),
+                            generics: generics.iter().map(|g| Cow::Owned(g.to_string())).collect(),
                         };
 
                         let for_type_node = impl_block

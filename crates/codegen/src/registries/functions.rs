@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use cranelift_module::FuncId;
 use linear_map::LinearMap;
@@ -69,7 +69,7 @@ impl MsFunctionRegistry {
 #[derive(Debug, Clone)]
 pub struct MsGenericFunction {
     pub decl: Rc<FunctionDecl>,
-    pub generics: Vec<Box<str>>,
+    pub generics: Vec<Cow<'static, str>>,
 }
 impl MsGenericFunction {
     pub(crate) fn generate(&self, _real_types: Vec<super::modules::MsResolved>) -> FunctionDecl {
@@ -80,21 +80,21 @@ impl MsGenericFunction {
 #[derive(Debug, Clone)]
 pub struct MsInstantiation {
     pub template: MsGenericFunction,
-    pub instantiation_name: String,
+    pub instantiation_name: Cow<'static, str>,
     pub real_types: Vec<super::modules::MsResolved>,
 }
 
 #[derive(Default, Debug)]
 pub struct MsFunctionTemplates {
-    pub registry: HashMap<Box<str>, MsGenericFunction>,
+    pub registry: HashMap<Cow<'static, str>, MsGenericFunction>,
 }
 
 #[derive(Default, Debug)]
 pub struct MsTraitTemplates {
-    pub registry: HashMap<Box<str>, Vec<FunctionDecl>>,
+    pub registry: HashMap<Cow<'static, str>, Vec<FunctionDecl>>,
 }
 
 #[derive(Default, Debug)]
 pub struct MsTraitGenericTemplates {
-    pub registry: HashMap<Box<str>, Vec<MsGenericFunction>>,
+    pub registry: HashMap<Cow<'static, str>, Vec<MsGenericFunction>>,
 }

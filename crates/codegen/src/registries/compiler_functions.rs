@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use cranelift::prelude::{types, FunctionBuilder, InstBuilder, StackSlotData};

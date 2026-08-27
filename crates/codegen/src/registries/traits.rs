@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use super::functions::{MsDeclaredFunction, MsFunctionRegistry};
 use super::types::{MsTypeId, MsTypeWithId};
 use std::collections::HashMap;
@@ -20,7 +21,7 @@ pub struct MsTrait {
 pub struct MsTraitRegistry {
     pub traits: HashMap<Box<str>, MsTrait>,
     // trait_name -> type_id -> implementation
-    pub registry: HashMap<Box<str>, HashMap<MsTypeId, MsFunctionRegistry>>,
+    pub registry: HashMap<Cow<'static, str>, HashMap<MsTypeId, MsFunctionRegistry>>,
 }
 
 impl MsTraitRegistry {
@@ -38,7 +39,7 @@ impl MsTraitRegistry {
         trait_name: Box<str>,
         methods: MsFunctionRegistry,
     ) {
-        let trait_impls = self.registry.entry(trait_name).or_default();
+        let trait_impls = self.registry.entry(Cow::Owned(trait_name.to_string())).or_default();
         trait_impls.insert(type_id, methods);
     }
 
@@ -76,7 +77,7 @@ impl MsTraitRegistry {
         func_decl: Rc<MsDeclaredFunction>,
     ) {
         self.registry
-            .entry(trait_name.into())
+            .entry(Cow::Owned(trait_name.to_string()))
             .or_default()
             .entry(type_id)
             .or_default()

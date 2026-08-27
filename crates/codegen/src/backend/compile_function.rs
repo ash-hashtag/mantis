@@ -1,3 +1,30 @@
+fn safe_call(
+    fbx: &mut FunctionBuilder,
+    func_ref: cranelift::codegen::ir::FuncRef,
+    mut call_args: Vec<Value>,
+) -> Inst {
+    let sig = fbx.func.dfg.ext_funcs[func_ref].signature;
+    let expected_params = fbx.func.dfg.signatures[sig].params.clone();
+    while call_args.len() < expected_params.len() {
+        call_args.push(fbx.ins().iconst(types::I64, 0));
+    }
+    if call_args.len() > expected_params.len() {
+        call_args.truncate(expected_params.len());
+    }
+    for (i, param) in expected_params.iter().enumerate() {
+        let val = call_args[i];
+        let val_ty = fbx.func.dfg.value_type(val);
+        if val_ty != param.value_type {
+            if val_ty.bits() < param.value_type.bits() {
+                call_args[i] = fbx.ins().uextend(param.value_type, val);
+            } else if val_ty.bits() > param.value_type.bits() {
+                call_args[i] = fbx.ins().ireduce(param.value_type, val);
+            }
+        }
+    }
+    fbx.ins().call(func_ref, &call_args)
+}
+use std::borrow::Cow;
 use crate::ms::MsContext;
 use crate::native::instructions::NodeResult;
 use crate::registries::functions::{
@@ -53,15 +80,19 @@ pub fn compile_function(
         .name
         .as_ref()
         .map(|n| match n {
-            MsTokenType::Named(id) => &id.name,
+            MsTokenType::Named(id) => id.name.clone(),
             MsTokenType::Generic(base, _) => match &**base {
-                MsTokenType::Named(id) => &id.name,
+                MsTokenType::Named(id) => id.name.clone(),
                 _ => panic!("unhandled function name type"),
             },
             _ => panic!("unhandled function name type"),
         })
         .expect("function must have a name");
-    let mut linkage = Linkage::Preemptible;
+    let mut linkage = if function.is_pub || name == "main" {
+        Linkage::Export
+    } else {
+        Linkage::Local
+    };
     if function.is_extern {
         if function.body.is_none() {
             linkage = Linkage::Import;
@@ -231,13 +262,21 @@ pub fn compile_function(
 
     ctx.func.signature.call_conv = module.isa().default_call_conv();
 
-    let func_id = module
-        .declare_function(
-            exporting_fn_name.unwrap_or(name),
-            linkage,
-            &ctx.func.signature,
-        )
-        .unwrap();
+    let fn_name_str = exporting_fn_name.unwrap_or(&name);
+    let func_id = match module.declare_function(
+        fn_name_str,
+        linkage,
+        &ctx.func.signature,
+    ) {
+        Ok(id) => id,
+        Err(cranelift_module::ModuleError::IncompatibleSignature(name_str, _, _)) => {
+            match module.get_name(&name_str) {
+                Some(cranelift_module::FuncOrDataId::Func(id)) => id,
+                _ => panic!("IncompatibleSignature for {}, but func not found", name_str),
+            }
+        }
+        Err(e) => panic!("{:?}", e),
+    };
 
     let declared_function = Rc::new(MsDeclaredFunction {
         func_id,
@@ -254,7 +293,7 @@ pub fn compile_function(
     ms_ctx
         .current_module
         .fn_registry
-        .add_function(exporting_fn_name.unwrap_or(name), declared_function.clone());
+        .add_function(exporting_fn_name.unwrap_or(&name), declared_function.clone());
 
     if let Some(tot) = &trait_on_type {
         if let Some(trait_name) = tot.trait_name {
@@ -268,7 +307,7 @@ pub fn compile_function(
 
         ms_ctx.current_module.type_fn_registry.add_function(
             tot.on_type.id,
-            name.as_str(),
+            Cow::Owned(name.clone()),
             declared_function.clone(),
         );
     }
@@ -820,7 +859,24 @@ pub fn compile_node(
                         return Some(NodeResult::Val(MsVal::new(res_ty, value)));
                     }
                     MsType::Struct(_sty) => {
-                        panic!("structs can't be used with == operator");
+                        let lval = lhs_result.value(fbx, ms_ctx);
+                        let rval = rhs_result.value(fbx, ms_ctx);
+                        let value = compile_comparison_for_match(
+                            lhs_result.ty(),
+                            lval,
+                            rval,
+                            fbx,
+                            module,
+                            ms_ctx,
+                        );
+                        let bool_ty = ms_ctx
+                            .current_module
+                            .resolve_from_str("bool")
+                            .unwrap()
+                            .ty()
+                            .unwrap()
+                            .id;
+                        return Some(NodeResult::Val(MsVal::new(bool_ty, value)));
                     }
                     MsType::Enum(enum_ty) => {
                         let tag = enum_ty.get_tag(rhs_result.value(fbx, ms_ctx), fbx);
@@ -962,7 +1018,39 @@ pub fn compile_node(
                     let ref_ty_id = ms_ctx.current_module.type_registry.get_or_add_type(ref_ty);
                     return Some(NodeResult::Val(MsVal::new(ref_ty_id, ptr)));
                 }
-                _ => todo!("address-of only implemented for identifiers"),
+                Expr::Field { object, field, .. } => {
+                    let obj_node = compile_node(object, module, fbx, ms_ctx).unwrap();
+                    let obj_ty = ms_ctx.current_module.type_registry.get_from_type_id(obj_node.ty()).unwrap();
+                    let (field_offset, field_ty) = match &obj_ty {
+                        MsType::Struct(s) => {
+                            let f = s.get_field(&field.name).unwrap();
+                            let ty = ms_ctx.current_module.type_registry.get_from_type_id(f.ty).unwrap();
+                            (f.offset, ty)
+                        }
+                        MsType::Ref(inner, _) => match &**inner {
+                            MsType::Struct(s) => {
+                                let f = s.get_field(&field.name).unwrap();
+                                let ty = ms_ctx.current_module.type_registry.get_from_type_id(f.ty).unwrap();
+                                (f.offset, ty)
+                            }
+                            _ => panic!("field access on non-struct ref"),
+                        },
+                        _ => panic!("field access on non-struct"),
+                    };
+                    let base_ptr = obj_node.value(fbx, ms_ctx);
+                    let field_ptr = fbx.ins().iadd_imm(base_ptr, field_offset as i64);
+                    let ref_ty = MsType::Ref(Box::new(field_ty), true);
+                    let ref_ty_id = ms_ctx.current_module.type_registry.get_or_add_type(ref_ty);
+                    return Some(NodeResult::Val(MsVal::new(ref_ty_id, field_ptr)));
+                }
+                other => {
+                    let node = compile_node(other, module, fbx, ms_ctx).unwrap();
+                    let ptr = node.value(fbx, ms_ctx);
+                    let ty = ms_ctx.current_module.type_registry.get_from_type_id(node.ty()).unwrap();
+                    let ref_ty = MsType::Ref(Box::new(ty.clone()), false);
+                    let ref_ty_id = ms_ctx.current_module.type_registry.get_or_add_type(ref_ty);
+                    return Some(NodeResult::Val(MsVal::new(ref_ty_id, ptr)));
+                }
             },
         },
         Expr::Call { callee, args, span } => {
@@ -1018,7 +1106,7 @@ pub fn compile_node(
                                 arg_idx += 1;
                             }
 
-                            let inst = fbx.ins().call(func_ref, &args_cl_vals);
+                            let inst = safe_call(fbx, func_ref, args_cl_vals);
                             let result = fbx.inst_results(inst);
                             if !result.is_empty() {
                                 return Some(NodeResult::Val(MsVal::new(
@@ -1054,7 +1142,7 @@ pub fn compile_node(
                     }
                     _ => false,
                 };
-                if let Some(obj_res) = obj_node_res.filter(|_| !object_is_type_template) {
+                if let Some(obj_res) = obj_node_res.filter(|r| !matches!(r, NodeResult::TypeRef(_)) && !object_is_type_template) {
                     let obj_ty_id = obj_res.ty();
                     let obj_ty = ms_ctx
                         .current_module
@@ -1217,7 +1305,9 @@ pub fn compile_node(
                         .get(&search_ty_id)
                         .and_then(|entry| entry.registry.get(method_name).cloned())
                         .or_else(|| {
-                            let fn_type_expr = expr_to_type_expr(callee);
+                
+
+            let fn_type_expr = expr_to_type_expr(callee);
                             let full_type_name = ms_ctx.current_module.type_registry.name_of(search_ty_id).unwrap_or_default();
                             let mut base_name = full_type_name.split("[").next().unwrap_or(&full_type_name).to_string();
                             if !ms_ctx.current_module.trait_generic_templates.registry.contains_key(base_name.as_str()) {
@@ -1376,7 +1466,7 @@ pub fn compile_node(
 
                         
                         let func_ref = module.declare_func_in_func(func.func_id, fbx.func);
-                        let inst = fbx.ins().call(func_ref, &call_arg_values);
+                        let inst = safe_call(fbx, func_ref, call_arg_values);
                         let result = fbx.inst_results(inst);
 
                         if !result.is_empty() {
@@ -1408,6 +1498,69 @@ pub fn compile_node(
                     compile_node(arg, module, fbx, ms_ctx)
                         .expect(&format!("failed to compile argument for call")),
                 );
+            }
+
+            if let Expr::Field { object, field, .. } = &**callee {
+                let method_name = field.name.as_str();
+                if let Some(obj_res) = compile_node(object, module, fbx, ms_ctx) {
+                    let mut current_ty_id = obj_res.ty();
+                    if let Some(ty) = ms_ctx.current_module.type_registry.get_from_type_id(current_ty_id) {
+                        if let MsType::Ref(inner, _) = ty {
+                            current_ty_id = ms_ctx.current_module.type_registry.get_or_add_type(*inner);
+                        }
+                        if let Some(func) = ms_ctx.current_module.find_type_fn(current_ty_id, method_name).or_else(|| {
+                            let ty_name = ms_ctx.current_module.type_registry.name_of(current_ty_id)?;
+                            let base_name = ty_name.split("[").next().unwrap_or(&ty_name);
+                            ms_ctx.current_module.find_type_fn_by_name(base_name, method_name)
+                        }).or_else(|| ms_ctx.current_module.find_any_type_fn(method_name)) {
+                            let mut call_args = Vec::new();
+                            let mut returns_struct_ptr: Option<Value> = None;
+                            if let Some(fn_ret_ty) = func.rets {
+                                if let Some(return_ty) = ms_ctx.current_module.type_registry.get_from_type_id(fn_ret_ty) {
+                                    match return_ty {
+                                        MsType::Struct(sty) => {
+                                            let stackslot = fbx.create_sized_stack_slot(StackSlotData::new(
+                                                StackSlotKind::ExplicitSlot,
+                                                sty.size() as u32,
+                                                0,
+                                            ));
+                                            let ptr = fbx.ins().stack_addr(types::I64, stackslot, 0);
+                                            call_args.push(ptr);
+                                            returns_struct_ptr = Some(ptr);
+                                        }
+                                        MsType::Enum(ety) => {
+                                            let stackslot = fbx.create_sized_stack_slot(StackSlotData::new(
+                                                StackSlotKind::ExplicitSlot,
+                                                ety.size() as u32,
+                                                0,
+                                            ));
+                                            let ptr = fbx.ins().stack_addr(types::I64, stackslot, 0);
+                                            call_args.push(ptr);
+                                            returns_struct_ptr = Some(ptr);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            call_args.push(obj_res.value(fbx, ms_ctx));
+                            for a in &arg_results {
+                                call_args.push(a.value(fbx, ms_ctx));
+                            }
+                            let fn_ref = module.declare_func_in_func(func.func_id, fbx.func);
+                            let inst = safe_call(fbx, fn_ref, call_args);
+                            let res_val = fbx.inst_results(inst);
+                            let ret_val = if let Some(ptr) = returns_struct_ptr {
+                                NodeResult::Val(MsVal::new(func.rets.unwrap_or(MsTypeId(0)), ptr))
+                            } else if res_val.is_empty() {
+                                let v0 = fbx.ins().iconst(types::I64, 0);
+                                NodeResult::Val(MsVal::new(func.rets.unwrap_or(MsTypeId(0)), v0))
+                            } else {
+                                NodeResult::Val(MsVal::new(func.rets.unwrap_or(MsTypeId(0)), res_val[0]))
+                            };
+                            return Some(ret_val);
+                        }
+                    }
+                }
             }
 
             let fn_type_expr = expr_to_type_expr(callee);
@@ -1612,10 +1765,26 @@ pub fn compile_node(
                 MsResolved::EnumUnwrap(enum_ty_with_id, variant_name) => {
                     let enum_ty = match &enum_ty_with_id.ty {
                         MsType::Enum(e) => e,
-                        _ => unreachable!(),
+                        MsType::Ref(inner, _) => match &**inner {
+                            MsType::Enum(e) => e,
+                            _ => unreachable!(),
+                        },
+                        MsType::Struct(_) => {
+                            let slot = fbx.create_sized_stack_slot(StackSlotData::new(
+                                StackSlotKind::ExplicitSlot,
+                                enum_ty_with_id.ty.size() as u32,
+                                0,
+                            ));
+                            let ptr = fbx.ins().stack_addr(types::I64, slot, 0);
+                            return Some(NodeResult::Val(MsVal::new(enum_ty_with_id.id, ptr)));
+                        }
+                        other => panic!("Unexpected type for EnumUnwrap: {:?}", other),
                     };
-                    assert!(arg_results.len() == 1);
-                    let arg_res = arg_results.remove(0);
+                    let arg_res = if !arg_results.is_empty() {
+                        Some(arg_results.remove(0))
+                    } else {
+                        None
+                    };
 
                     let slot = fbx.create_sized_stack_slot(StackSlotData::new(
                         StackSlotKind::ExplicitSlot,
@@ -1623,7 +1792,7 @@ pub fn compile_node(
                         0,
                     ));
                     let ptr = fbx.ins().stack_addr(types::I64, slot, 0);
-                    enum_ty.set_variant(ptr, &variant_name, Some(arg_res), fbx, ms_ctx, module);
+                    enum_ty.set_variant(ptr, &variant_name, arg_res, fbx, ms_ctx, module);
 
                     return Some(NodeResult::Val(MsVal::new(enum_ty_with_id.id, ptr)));
                 }
@@ -1748,7 +1917,7 @@ pub fn compile_node(
 
             let func_ref = module.declare_func_in_func(func.func_id, fbx.func);
             log::info!("calling a function {:?}", callee);
-            let inst = fbx.ins().call(func_ref, &call_arg_values);
+            let inst = safe_call(fbx, func_ref, call_arg_values);
             let result = fbx.inst_results(inst);
 
             if !result.is_empty() {
@@ -1790,6 +1959,10 @@ pub fn compile_node(
                     .unwrap()
                     .id;
                 return Some(NodeResult::Val(MsVal::new(func_ty_id, func_ptr)));
+            } else if let Some(ty) = ms_ctx.current_module.find_type(var_name) {
+                return Some(NodeResult::TypeRef(ty));
+            } else if let Some(template) = ms_ctx.current_module.find_type_template(var_name) {
+                return Some(NodeResult::TypeRef(template.generate(&std::collections::HashMap::new(), &mut ms_ctx.current_module)));
             } else if var_name == "libc" || var_name == "std" || ms_ctx.current_module.submodules.contains_key(var_name) {
                 return None;
             } else {
@@ -1801,6 +1974,17 @@ pub fn compile_node(
             field,
             span: _,
         } => {
+            let is_var = match &**object {
+                Expr::Ident(id) => ms_ctx.var_scopes.find_variable(&id.name).is_some(),
+                _ => false,
+            };
+            if is_var {
+                let obj_node = compile_node(object, module, fbx, ms_ctx)?;
+                let child = MsTokenType::Named(field.clone());
+                return Some(compile_nested_struct_access(
+                    obj_node, &child, ms_ctx, fbx, module,
+                ));
+            }
             let ty_expr = field_access_to_type_expr(node);
             if let Some(resolved) = ms_ctx.current_module.resolve(&ty_expr) {
                 match resolved {
@@ -2348,7 +2532,7 @@ pub fn compile_nested_struct_access(
         match ty_val {
             MsType::Enum(_) => {
                 let variant_name = child.as_name().unwrap();
-                return NodeResult::EnumUnwrap(ty.clone(), variant_name.into());
+                return NodeResult::EnumUnwrap(ty.clone(), Cow::Owned(variant_name.to_string()));
             }
             _ => todo!("static access on non-enum type {:?}", ty_val),
         }
@@ -3143,30 +3327,47 @@ pub fn compile_match_block(
 
         // Handle pattern bindings
         if let Expr::Call { args, callee, .. } = &arm.pattern {
-            let ty_expr = expr_to_type_expr(callee);
-            if let Some(MsResolved::EnumUnwrap(enum_ty, variant_name)) =
-                ms_ctx.current_module.resolve(&ty_expr)
-            {
-                if let MsType::Enum(enum_inner) = &enum_ty.ty {
+            let variant_name_opt: Option<String> = match &**callee {
+                Expr::Ident(id) => Some(id.name.to_string()),
+                Expr::Field { field, .. } => Some(field.name.to_string()),
+                _ => None,
+            };
+            if let Some(ref variant_name) = variant_name_opt {
+                let scrutinee_ty = ms_ctx
+                    .current_module
+                    .type_registry
+                    .get_from_type_id(scrutinee_ty_id)
+                    .unwrap();
+                let enum_inner_opt = match &scrutinee_ty {
+                    MsType::Enum(enum_inner) => Some(enum_inner.clone()),
+                    MsType::Ref(inner, _) => match &**inner {
+                        MsType::Enum(enum_inner) => Some(enum_inner.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(enum_inner) = enum_inner_opt {
                     if let Some(arg) = args.first() {
                         if let Expr::Ident(var_id) = arg {
                             let name = var_id.name.as_str();
                             if name != "_" {
-                                // Extract value from enum
-                                let variant_ty = enum_inner.get_inner_ty(&variant_name).unwrap();
-                                let data_ptr = fbx.ins().iadd_imm(scrutinee_val, 8); // Offset of data
-                                let val = fbx.ins().load(
-                                    variant_ty.ty.to_cl_type().unwrap(),
-                                    MemFlagsData::new(),
-                                    data_ptr,
-                                    0,
-                                );
-                                let c_var = fbx.declare_var(variant_ty.ty.to_cl_type().unwrap());
-                                fbx.def_var(c_var, val);
-                                ms_ctx.var_scopes.add_variable(
-                                    name,
-                                    MsVar::new(variant_ty.id, c_var, None, true, false),
-                                );
+                                if let Some(variant_ty) = enum_inner.get_inner_ty(&variant_name) {
+                                    let data_ptr = fbx.ins().iadd_imm(scrutinee_val, 8);
+                                    let val = fbx.ins().load(
+                                        variant_ty.ty.to_cl_type().unwrap(),
+                                        MemFlagsData::new(),
+                                        data_ptr,
+                                        0,
+                                    );
+                                    let c_var = fbx.declare_var(variant_ty.ty.to_cl_type().unwrap());
+                                    fbx.def_var(c_var, val);
+                                    ms_ctx.var_scopes.add_variable(
+                                        name,
+                                        MsVar::new(variant_ty.id, c_var, None, true, false),
+                                    );
+                                } else {
+                                    log::warn!("get_inner_ty({}) returned None for enum {:?}", variant_name, enum_inner);
+                                }
                             }
                         }
                     }
@@ -3266,7 +3467,7 @@ fn compile_comparison_for_match(
 pub fn check_if_its_enum_unwrap(
     type_name: &MsTokenType,
     ms_ctx: &mut MsContext,
-) -> Option<(Rc<MsEnumType>, Box<str>)> {
+) -> Option<(Rc<MsEnumType>, Cow<'static, str>)> {
     let resolved = ms_ctx.current_module.resolve(type_name)?;
     return match resolved {
         MsResolved::EnumUnwrap(enum_ty, variant_name) => {
@@ -3452,7 +3653,7 @@ pub fn instantiate_generic_function(
 
         ms_ctx.instantiation_queue.push(MsInstantiation {
             template: template.clone(),
-            instantiation_name: instantiation_name.clone(),
+            instantiation_name: Cow::Owned(instantiation_name.clone()),
             real_types,
         });
 
@@ -3497,7 +3698,6 @@ pub fn infer_return_type_from_body(
     let entry_block = temp_fbx.create_block();
     temp_fbx.append_block_params_for_function_params(entry_block);
     temp_fbx.switch_to_block(entry_block);
-    temp_fbx.seal_block(entry_block);
 
     ms_ctx.var_scopes.new_scope();
 
@@ -3523,6 +3723,7 @@ pub fn infer_return_type_from_body(
             MsVar::new(ty_id, c_var, None, param.mutable, false),
         );
     }
+    temp_fbx.seal_block(entry_block);
 
     let mut inferred_id = None;
 
@@ -3592,7 +3793,7 @@ pub fn infer_generics_from_args(
     arg_tys: &[MsTypeId],
     ms_ctx: &MsContext,
 ) -> Vec<MsResolved> {
-    let mut map = std::collections::HashMap::new();
+    let mut map = std::collections::HashMap::<Cow<'static, str>, MsTypeId>::new();
     for (param, &arg_ty_id) in template.decl.params.iter().zip(arg_tys.iter()) {
         let arg_ty = ms_ctx
             .current_module
@@ -3639,19 +3840,19 @@ pub fn infer_generics_from_args(
 fn unify_type_expr_with_concrete(
     expr: &MsTokenType,
     concrete: &MsType,
-    generic_names: &[Box<str>],
-    map: &mut std::collections::HashMap<Box<str>, MsTypeId>,
+    generic_names: &[Cow<'static, str>],
+    map: &mut std::collections::HashMap<Cow<'static, str>, MsTypeId>,
     ms_ctx: &MsContext,
 ) {
     match expr {
         MsTokenType::Named(id) => {
-            if generic_names.iter().any(|g| g.as_ref() == id.name.as_str()) {
+            if generic_names.iter().any(|g| g == id.name.as_str()) {
                 let ty_id = ms_ctx
                     .current_module
                     .type_registry
                     .get_id_from_type(concrete)
                     .unwrap();
-                map.insert(id.name.as_str().into(), ty_id);
+                map.insert(Cow::Owned(id.name.clone()), ty_id);
             }
         }
         MsTokenType::Ref(inner, _) => {
@@ -3668,12 +3869,12 @@ fn unify_type_expr_with_concrete(
                         let inner_names_str = &name[open + 1..close];
                         if args.len() == 1 {
                             if let MsTokenType::Named(id) = &args[0] {
-                                if generic_names.iter().any(|g| g.as_ref() == id.name.as_str()) {
+                                if generic_names.iter().any(|g| g == id.name.as_str()) {
                                     if let Ok(num_id) = inner_names_str.parse::<u32>() {
                                         let ty_id = MsTypeId(num_id);
-                                        map.insert(id.name.as_str().into(), ty_id);
+                                        map.insert(Cow::Owned(id.name.clone()), ty_id);
                                     } else if let Some(inner_ty) = ms_ctx.current_module.type_registry.get_from_str(inner_names_str) {
-                                        map.insert(id.name.as_str().into(), inner_ty.id);
+                                        map.insert(Cow::Owned(id.name.clone()), inner_ty.id);
                                     }
                                 }
                             }

@@ -334,7 +334,7 @@ impl Parser {
             let mutable = self.eat(&Token::Mut);
             // Skip 'ref' if it appears (seen in memory.ms)
             if let Some(Token::Ident(id)) = self.peek() {
-                if id == "ref" {
+                if *id == "ref" {
                     self.advance();
                 }
             }
@@ -1154,7 +1154,7 @@ impl Parser {
             Some(Token::CompilerFn(name)) => {
                 let start = self.advance().span;
                 let is_intrinsic = matches!(
-                    name.as_str(),
+                    name,
                     "init"
                         | "free"
                         | "size_of"
@@ -1170,7 +1170,7 @@ impl Parser {
                     let args = self.parse_expr_list(&Token::RParen)?;
                     let end = self.expect(&Token::RParen)?;
                     Ok(Expr::CompilerCall {
-                        name,
+                        name: name.to_string(),
                         args,
                         span: start.merge(end),
                     })
@@ -1194,9 +1194,9 @@ impl Parser {
                 Ok(Expr::FloatLit { value: v, span })
             }
             Some(Token::String(ref v)) => {
-                let v = v.clone();
+                let v = *v;
                 let span = self.advance().span;
-                Ok(Expr::StringLit { value: v, span })
+                Ok(Expr::StringLit { value: v.to_string(), span })
             }
             Some(Token::Char(v)) => {
                 let span = self.advance().span;

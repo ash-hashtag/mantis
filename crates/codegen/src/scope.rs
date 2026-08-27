@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::{any::Any, ops::Deref};
 
 use cranelift::{
@@ -275,7 +276,12 @@ impl MsLoopScopes {
     }
 
     pub fn end_loop(&mut self, name: Option<&str>, fbx: &mut FunctionBuilder) {
-        let scope = self.find_last_loop(name).expect("unidentified loop");
+        let index = if let Some(name) = name {
+            self.scopes.iter().rposition(|x| x.name.as_deref() == Some(name))
+        } else {
+            self.scopes.len().checked_sub(1)
+        }.expect("unidentified loop");
+        let scope = self.scopes.remove(index);
         fbx.ins().jump(scope.entry_block, &[]);
         fbx.seal_block(scope.entry_block);
 

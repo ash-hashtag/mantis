@@ -612,16 +612,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mantis"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "serde",
- "toml",
-]
-
-[[package]]
 name = "mantis_codegen"
 version = "0.1.0"
 dependencies = [
