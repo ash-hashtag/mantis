@@ -4,8 +4,9 @@ use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
 use cranelift::{
     codegen::Context,
-    prelude::{settings, types, AbiParam, Configurable, FunctionBuilder, FunctionBuilderContext},
+    prelude::*,
 };
+use cranelift::codegen::ir::MemFlagsData;
 use cranelift_module::{default_libcall_names, DataDescription, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use mantis_parser::ast::{
@@ -1446,6 +1447,10 @@ pub fn compile_binary(
         }
     }
 
+    if let Some(cranelift_module::FuncOrDataId::Func(user_main_id)) = module.get_name("__mantis_user_main") {
+        compile_main_entry(user_main_id, &mut module, &mut fbx);
+    }
+
     let object_product = module.finish();
 
     let bytes = object_product.emit()?;
@@ -1453,17 +1458,172 @@ pub fn compile_binary(
     Ok(bytes)
 }
 
-pub fn compile_main_fn(
+fn compile_main_entry(
+    user_main_id: cranelift_module::FuncId,
     module: &mut ObjectModule,
-    ctx: &mut Context,
     fbx: &mut FunctionBuilderContext,
-    ms_ctx: &mut MsContext,
 ) {
-    ctx.func.signature.params.push(AbiParam::new(types::I32)); // argv
-    ctx.func.signature.params.push(AbiParam::new(types::I64)); // char** argc
-    ctx.func.signature.returns.push(AbiParam::new(types::I32)); // exit code
-
-    let func_id = module
-        .declare_function("main", Linkage::Export, &ctx.func.signature)
+    // 1. Data symbols
+    let argc_data = module
+        .declare_data("__mantis_argc", Linkage::Local, true, false)
         .unwrap();
+    let mut desc = DataDescription::new();
+    desc.define_zeroinit(8);
+    let _ = module.define_data(argc_data, &desc);
+
+    let argv_data = module
+        .declare_data("__mantis_argv", Linkage::Local, true, false)
+        .unwrap();
+    let mut desc = DataDescription::new();
+    desc.define_zeroinit(8);
+    let _ = module.define_data(argv_data, &desc);
+
+    let envp_data = module
+        .declare_data("__mantis_envp", Linkage::Local, true, false)
+        .unwrap();
+    let mut desc = DataDescription::new();
+    desc.define_zeroinit(8);
+    let _ = module.define_data(envp_data, &desc);
+
+    // 2. mantis_get_argc() -> i32
+    {
+        let mut sig = module.make_signature();
+        sig.returns.push(AbiParam::new(types::I32).sext());
+        sig.call_conv = module.isa().default_call_conv();
+        let get_argc_id = match module.declare_function("mantis_get_argc", Linkage::Export, &sig) {
+            Ok(id) => id,
+            Err(_) => module.get_name("mantis_get_argc").and_then(|id| match id {
+                cranelift_module::FuncOrDataId::Func(f) => Some(f),
+                _ => None,
+            }).unwrap(),
+        };
+        let mut get_argc_ctx = module.make_context();
+        get_argc_ctx.func.signature = sig;
+        let mut builder = FunctionBuilder::new(&mut get_argc_ctx.func, fbx);
+        let block = builder.create_block();
+        builder.switch_to_block(block);
+        builder.seal_block(block);
+        let gv = module.declare_data_in_func(argc_data, builder.func);
+        let addr = builder.ins().symbol_value(types::I64, gv);
+        let val = builder.ins().load(types::I32, MemFlagsData::new(), addr, 0);
+        builder.ins().return_(&[val]);
+        builder.finalize(module.target_config());
+        let _ = module.define_function(get_argc_id, &mut get_argc_ctx);
+    }
+
+    // 3. mantis_get_argv() -> i64
+    {
+        let mut sig = module.make_signature();
+        sig.returns.push(AbiParam::new(types::I64).sext());
+        sig.call_conv = module.isa().default_call_conv();
+        let get_argv_id = match module.declare_function("mantis_get_argv", Linkage::Export, &sig) {
+            Ok(id) => id,
+            Err(_) => module.get_name("mantis_get_argv").and_then(|id| match id {
+                cranelift_module::FuncOrDataId::Func(f) => Some(f),
+                _ => None,
+            }).unwrap(),
+        };
+        let mut get_argv_ctx = module.make_context();
+        get_argv_ctx.func.signature = sig;
+        let mut builder = FunctionBuilder::new(&mut get_argv_ctx.func, fbx);
+        let block = builder.create_block();
+        builder.switch_to_block(block);
+        builder.seal_block(block);
+        let gv = module.declare_data_in_func(argv_data, builder.func);
+        let addr = builder.ins().symbol_value(types::I64, gv);
+        let val = builder.ins().load(types::I64, MemFlagsData::new(), addr, 0);
+        builder.ins().return_(&[val]);
+        builder.finalize(module.target_config());
+        let _ = module.define_function(get_argv_id, &mut get_argv_ctx);
+    }
+
+    // 4. mantis_get_envp() -> i64
+    {
+        let mut sig = module.make_signature();
+        sig.returns.push(AbiParam::new(types::I64).sext());
+        sig.call_conv = module.isa().default_call_conv();
+        let get_envp_id = match module.declare_function("mantis_get_envp", Linkage::Export, &sig) {
+            Ok(id) => id,
+            Err(_) => module.get_name("mantis_get_envp").and_then(|id| match id {
+                cranelift_module::FuncOrDataId::Func(f) => Some(f),
+                _ => None,
+            }).unwrap(),
+        };
+        let mut get_envp_ctx = module.make_context();
+        get_envp_ctx.func.signature = sig;
+        let mut builder = FunctionBuilder::new(&mut get_envp_ctx.func, fbx);
+        let block = builder.create_block();
+        builder.switch_to_block(block);
+        builder.seal_block(block);
+        let gv = module.declare_data_in_func(envp_data, builder.func);
+        let addr = builder.ins().symbol_value(types::I64, gv);
+        let val = builder.ins().load(types::I64, MemFlagsData::new(), addr, 0);
+        builder.ins().return_(&[val]);
+        builder.finalize(module.target_config());
+        let _ = module.define_function(get_envp_id, &mut get_envp_ctx);
+    }
+
+    // 5. main(argc: i32, argv: i64, envp: i64) -> i32 (standard C entrypoint)
+    {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I32).sext()); // argc
+        sig.params.push(AbiParam::new(types::I64).sext()); // argv
+        sig.params.push(AbiParam::new(types::I64).sext()); // envp
+        sig.returns.push(AbiParam::new(types::I32).sext()); // exit code
+        sig.call_conv = module.isa().default_call_conv();
+        let main_id = match module.declare_function("main", Linkage::Export, &sig) {
+            Ok(id) => id,
+            Err(_) => module.get_name("main").and_then(|id| match id {
+                cranelift_module::FuncOrDataId::Func(f) => Some(f),
+                _ => None,
+            }).unwrap(),
+        };
+        let mut main_ctx = module.make_context();
+        main_ctx.func.signature = sig;
+        let mut builder = FunctionBuilder::new(&mut main_ctx.func, fbx);
+        let block = builder.create_block();
+        builder.append_block_params_for_function_params(block);
+        builder.switch_to_block(block);
+        builder.seal_block(block);
+
+        let argc_val = builder.block_params(block)[0];
+        let argv_val = builder.block_params(block)[1];
+        let envp_val = builder.block_params(block)[2];
+
+        // Store argc
+        let gv_argc = module.declare_data_in_func(argc_data, builder.func);
+        let addr_argc = builder.ins().symbol_value(types::I64, gv_argc);
+        builder.ins().store(MemFlagsData::new(), argc_val, addr_argc, 0);
+
+        // Store argv
+        let gv_argv = module.declare_data_in_func(argv_data, builder.func);
+        let addr_argv = builder.ins().symbol_value(types::I64, gv_argv);
+        builder.ins().store(MemFlagsData::new(), argv_val, addr_argv, 0);
+
+        // Store envp
+        let gv_envp = module.declare_data_in_func(envp_data, builder.func);
+        let addr_envp = builder.ins().symbol_value(types::I64, gv_envp);
+        builder.ins().store(MemFlagsData::new(), envp_val, addr_envp, 0);
+
+        // Call user main
+        let user_main_ref = module.declare_func_in_func(user_main_id, builder.func);
+        let inst = builder.ins().call(user_main_ref, &[]);
+        let results = builder.inst_results(inst);
+        let exit_code = if !results.is_empty() {
+            let res = results[0];
+            let res_ty = builder.func.dfg.value_type(res);
+            if res_ty == types::I32 {
+                res
+            } else if res_ty.is_int() {
+                builder.ins().ireduce(types::I32, res)
+            } else {
+                builder.ins().iconst(types::I32, 0)
+            }
+        } else {
+            builder.ins().iconst(types::I32, 0)
+        };
+        builder.ins().return_(&[exit_code]);
+        builder.finalize(module.target_config());
+        let _ = module.define_function(main_id, &mut main_ctx);
+    }
 }

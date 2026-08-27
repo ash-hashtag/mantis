@@ -88,7 +88,10 @@ pub fn compile_function(
             _ => panic!("unhandled function name type"),
         })
         .expect("function must have a name");
-    let mut linkage = if function.is_pub || name == "main" {
+    let is_user_main = name == "main" && !function.is_extern;
+    let mut linkage = if is_user_main {
+        Linkage::Local
+    } else if function.is_pub {
         Linkage::Export
     } else {
         Linkage::Local
@@ -267,7 +270,9 @@ pub fn compile_function(
         "write" | "read" | "open" | "close" | "exit" | "malloc" | "free" | "realloc" | "memcpy" | "memset" | "memcmp" | "strlen" | "strcmp" | "strncmp" | "strcpy" | "strncpy" | "access" | "unlink" | "mkdir" | "getenv" | "setenv" | "unsetenv" | "getcwd" | "system" | "usleep" | "time" | "socket" | "bind" | "listen" | "accept" | "connect" | "puts"
     );
     let sym_name_buf;
-    let fn_name_str = if is_c_collision {
+    let fn_name_str = if is_user_main {
+        "__mantis_user_main"
+    } else if is_c_collision {
         linkage = Linkage::Local;
         sym_name_buf = format!("ms_fn_{}_{}", name, function.span.start);
         sym_name_buf.as_str()

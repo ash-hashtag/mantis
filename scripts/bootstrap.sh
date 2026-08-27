@@ -42,7 +42,6 @@ echo "=== 3. Linking self-hosted mantis binary ==="
 cc -no-pie \
     "$TARGET_DIR/cli.o" \
     "$TARGET_DIR/libc.o" \
-    "$REPO_ROOT/packages/cli/runtime.c" \
     -lc -lpthread -lm \
     -o "$TARGET_DIR/mantis"
 
