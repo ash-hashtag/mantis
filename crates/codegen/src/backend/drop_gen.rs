@@ -63,10 +63,20 @@ pub fn ensure_drop_registered(
     let Some(full_name) = ms_ctx.current_module.type_registry.name_of(ty_id) else {
         return false;
     };
-    let base_name = match full_name.find('[') {
+    let mut base_name = match full_name.find('[') {
         Some(i) => full_name[..i].to_string(),
         None => full_name.clone(),
     };
+    if !ms_ctx.current_module.trait_generic_templates.registry.contains_key(base_name.as_str()) {
+        for (tmpl_name, tmpl) in &ms_ctx.current_module.type_templates.registry {
+            if let crate::registries::types::MsGenericTemplateInner::Struct(sm) = &tmpl.inner_type {
+                if sm.map.len() == s.field_list().len() && sm.map.keys().all(|k| s.get_field(k.as_ref()).is_some()) {
+                    base_name = tmpl_name.to_string();
+                    break;
+                }
+            }
+        }
+    }
 
     // ── 1. User-written generic Drop impl: infer generics from fields ────
     if let Some(templates) = ms_ctx
@@ -191,10 +201,27 @@ fn infer_generics_from_fields(
                 .type_registry
                 .get_id_from_type(&inner)
                 .unwrap_or_else(|| {
+                    let name = match &*inner {
+                        MsType::Struct(sty) => {
+                            let matching_tmpl = ms_ctx.current_module.type_templates.registry.iter().find(|(_, tmpl)| {
+                                if let MsGenericTemplateInner::Struct(s) = &tmpl.inner_type {
+                                    s.map.len() == sty.field_list().len() && s.map.keys().all(|k| sty.get_field(k.as_ref()).is_some())
+                                } else {
+                                    false
+                                }
+                            });
+                            if let Some((tmpl_name, _)) = matching_tmpl {
+                                tmpl_name.to_string()
+                            } else {
+                                format!("__elem_{}", gen_name)
+                            }
+                        }
+                        _ => format!("__elem_{}", gen_name),
+                    };
                     ms_ctx
                         .current_module
                         .type_registry
-                        .add_type(format!("__elem_{}", gen_name), (*inner).clone())
+                        .add_type(name, (*inner).clone())
                 });
             map.insert(gen_name.clone(), inner_id);
         } else {
@@ -315,10 +342,20 @@ pub fn ensure_type_methods(
     let Some(full_name) = ms_ctx.current_module.type_registry.name_of(ty_id) else {
         return false;
     };
-    let base_name = match full_name.find('[') {
+    let mut base_name = match full_name.find('[') {
         Some(i) => full_name[..i].to_string(),
         None => full_name.clone(),
     };
+    if !ms_ctx.current_module.trait_generic_templates.registry.contains_key(base_name.as_str()) {
+        for (tmpl_name, tmpl) in &ms_ctx.current_module.type_templates.registry {
+            if let crate::registries::types::MsGenericTemplateInner::Struct(sm) = &tmpl.inner_type {
+                if sm.map.len() == s.field_list().len() && sm.map.keys().all(|k| s.get_field(k.as_ref()).is_some()) {
+                    base_name = tmpl_name.to_string();
+                    break;
+                }
+            }
+        }
+    }
 
     let Some(method_templates) = ms_ctx
         .current_module
@@ -340,7 +377,9 @@ pub fn ensure_type_methods(
 
     for mt in &method_templates {
         // Re-derive per-method (aliases are cleared inside instantiate).
-        if let Some(rts) = infer_generics_from_fields(ms_ctx, &base_name, s, &generics) {
+        let rts_opt = infer_generics_from_fields(ms_ctx, &base_name, s, &generics);
+        
+        if let Some(rts) = rts_opt {
             ms_ctx.current_module.add_alias(
                 TypeNameWithGenerics::new("Self".into(), vec![]),
                 MsTypeWithId {

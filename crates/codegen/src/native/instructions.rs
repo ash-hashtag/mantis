@@ -37,9 +37,15 @@ impl NodeResult {
                     .type_registry
                     .get_from_type_id(*ty_id)
                     .unwrap();
-                let cl_ty = ty.to_cl_type().unwrap();
                 let addr = fbx.ins().iadd_imm(*ptr, *offset as i64);
-                fbx.ins().load(cl_ty, MemFlagsData::new(), addr, 0)
+                match ty {
+                    crate::registries::types::MsType::Struct(_) => addr,
+                    crate::registries::types::MsType::Enum(_) => addr,
+                    _ => {
+                        let cl_ty = ty.to_cl_type().unwrap();
+                        fbx.ins().load(cl_ty, MemFlagsData::new(), addr, 0)
+                    }
+                }
             }
             NodeResult::EnumUnwrap(_, _) => panic!("Cannot get value of an EnumUnwrap NodeResult"),
             NodeResult::TypeRef(ty) => fbx.ins().iconst(types::I64, ty.id.0 as i64),

@@ -1,70 +1,107 @@
 use std.vec;
 use std.memory;
+use std.array;
 
-// libc externs (malloc/free/memcpy/memset) are provided by std.memory.
+pub type Str = StrSlice;
 
-type String = struct {
+pub type String = struct {
     vec Vec[u8]
 }
 
 impl String {
-    fn with_capacity(cap u64) String {
+    pub fn with_capacity(cap u64) String {
         return String { vec: Vec.with_capacity[u8](cap) };
     }
 
-    fn new() String {
+    pub fn new() String {
         return String.with_capacity(0);
     }
 
-    fn push_byte(self @String, b u8) {
+    pub fn push_byte(self @String, b u8) {
         self.vec.push(b);
     }
 
-    fn push_str(self @String, s StrSlice) {
+    pub fn push_str(self @String, s Str) {
         if s.len > 0 {
-            self.vec.reserve(s.len as u64);
+            let s_len = s.len as u64;
+            self.vec.reserve(s_len);
+            let ptr = self.vec.as_ptr();
             GlobalAllocator.copy_bytes(
-                self.vec.ptr as i64 + self.vec.len(),
+                ptr as i64 + self.vec.len(),
                 s.pointer,
-                s.len
+                s_len
             );
-            self.vec.size = self.vec.size + s.len;
+            self.vec.size = self.vec.size + s_len;
         }
     }
 
-    fn from_str(s StrSlice) String {
+    pub fn from_str(s Str) String {
         let str = String.with_capacity(s.len as u64);
         str.push_str(s);
         return str;
     }
 
-    fn as_str(self @String) StrSlice {
+    pub fn as_str(self @String) Str {
+        let arr = self.vec.as_array();
         let slice = StrSlice {
-            pointer: self.vec.ptr as i64,
-            len: self.vec.len() as i64
+            pointer: arr.ptr as i64,
+            len: arr.len as i64
         };
         return slice;
     }
 
-    fn len(self @String) u64 {
+    pub fn as_array(self @String) Array[u8] {
+        return self.vec.as_array();
+    }
+
+    pub fn as_ptr(self @String) @u8 {
+        return self.vec.as_ptr();
+    }
+
+    pub fn len(self @String) u64 {
         return self.vec.len();
     }
 
-    fn clear(self @String) {
+    pub fn is_empty(self @String) bool {
+        return self.vec.len() == 0;
+    }
+
+    pub fn clear(self @String) {
         self.vec.clear();
     }
 
     /// Release early. Optional — RAII frees automatically at scope exit.
-    fn free(self @String) {
+    pub fn free(self @String) {
         self.vec.free();
     }
 }
 
-/// RAII: release the backing buffer when the String goes out of scope.
-impl Drop for String {
-    fn drop(self @mut String) {
-        if self.vec.cap > 0 {
-            GlobalAllocator.dealloc(self.vec.ptr as i64);
-        }
+impl AsRef[Str] for String {
+    pub fn as_ref(self @String) Str {
+        return self.as_str();
+    }
+}
+
+impl Deref[Str] for String {
+    pub fn deref(self @String) Str {
+        return self.as_str();
+    }
+}
+
+impl AsRef[Array[u8]] for String {
+    pub fn as_ref(self @String) Array[u8] {
+        return self.as_array();
+    }
+}
+
+impl Deref[Array[u8]] for String {
+    pub fn deref(self @String) Array[u8] {
+        return self.as_array();
+    }
+}
+
+impl AsRef[u8] for String {
+    pub fn as_ref(self @String) @u8 {
+        return self.vec.as_ptr();
     }
 }

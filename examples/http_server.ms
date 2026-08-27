@@ -5,10 +5,10 @@ use std;
 // ── C Libc Function Declarations ─────────────────────────────────────────────
 
 fn socket(domain i32, ty i32, protocol i32) i32 extern ;
-fn setsockopt(sockfd i32, level i32, optname i32, optval @i32, optlen u32) i32 extern ;
-fn bind(sockfd i32, addr @sockaddr_in, addrlen u32) i32 extern ;
+fn setsockopt(sockfd i32, level i32, optname i32, optval i64, optlen u32) i32 extern ;
+fn bind(sockfd i32, addr i64, addrlen u32) i32 extern ;
 fn listen(sockfd i32, backlog i32) i32 extern ;
-fn accept(sockfd i32, addr @sockaddr_in, addrlen @u32) i32 extern ;
+fn accept(sockfd i32, addr i64, addrlen i64) i32 extern ;
 fn read(fd i64, data_ptr i64, count i64) i64 extern ;
 fn write(fd i64, data_ptr i64, count i64) i64 extern ;
 fn close(fd i32) i32 extern ;

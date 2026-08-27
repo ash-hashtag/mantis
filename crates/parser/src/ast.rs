@@ -74,6 +74,7 @@ pub struct FnDecl {
     pub body: Option<Block>,
     pub is_extern: bool,
     pub is_async: bool,
+    pub is_pub: bool,
     pub trailing_params: Option<Vec<Param>>,
     pub span: Span,
 }

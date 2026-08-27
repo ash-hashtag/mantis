@@ -50,6 +50,8 @@ impl fmt::Display for Span {
 #[logos(skip r"[ \t\r\n\f]+")]
 pub enum Token {
     // ── Keywords ──────────────────────────────────────────────
+    #[token("pub")]
+    Pub,
     #[token("fn")]
     Fn,
     #[token("let")]

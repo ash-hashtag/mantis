@@ -98,7 +98,8 @@ pub fn highlight(source: &str) -> Vec<HighlightSpan> {
     for spanned in tokens {
         let text = source[spanned.span.start..spanned.span.end].to_string();
         let cat = match spanned.token {
-            Token::Fn
+            Token::Pub
+            | Token::Fn
             | Token::Let
             | Token::Mut
             | Token::Return

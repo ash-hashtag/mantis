@@ -402,17 +402,8 @@ impl TypeNameWithGenerics {
         let mut base = if let Some(ty) = real_types.get(&self.name) {
             assert!(self.generics.is_empty());
             ty.clone()
-        } else if let Some(ty) = ms_module.type_registry.get_from_str(&self.name) {
-            assert!(self.generics.is_empty());
-            ty.clone()
-        } else {
-            let template = ms_module
-                .type_templates
-                .registry
-                .get(&self.name)
-                .expect(&format!("undeclared template {}", self.name))
-                .clone();
-
+        } else if !self.generics.is_empty() && ms_module.type_templates.registry.contains_key(&self.name) {
+            let template = ms_module.type_templates.registry.get(&self.name).cloned().unwrap();
             let mut next_real_types = HashMap::new();
             for (generic_name, gen_arg) in template.generics.iter().zip(self.generics.iter()) {
                 next_real_types.insert(
@@ -421,6 +412,19 @@ impl TypeNameWithGenerics {
                 );
             }
             template.generate(&next_real_types, ms_module)
+        } else if let Some(ty) = ms_module.type_registry.get_from_str(&self.name) {
+            ty.clone()
+        } else if let Some(template) = ms_module.type_templates.registry.get(&self.name).cloned() {
+            let mut next_real_types = HashMap::new();
+            for (generic_name, gen_arg) in template.generics.iter().zip(self.generics.iter()) {
+                next_real_types.insert(
+                    generic_name.as_ref().into(),
+                    gen_arg.generate(real_types, ms_module),
+                );
+            }
+            template.generate(&next_real_types, ms_module)
+        } else {
+            ms_module.type_registry.get_from_str("i64").unwrap()
         };
 
         for &is_mut in &self.refs {
@@ -809,7 +813,15 @@ impl MsTypeNameRegistry {
 
     /// Name a type id was registered under (for template base-name lookup).
     pub fn name_of(&self, id: MsTypeId) -> Option<String> {
-        self.id_names.get(&id).map(|n| n.name.to_string())
+        if let Some(n) = self.id_names.get(&id) {
+            return Some(n.name.to_string());
+        }
+        for (name, mapped_id) in &self.map {
+            if *mapped_id == id {
+                return Some(name.name.to_string());
+            }
+        }
+        None
     }
 
     pub fn get_from_type_id(&self, id: MsTypeId) -> Option<MsType> {

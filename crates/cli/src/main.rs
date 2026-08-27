@@ -94,6 +94,10 @@ struct Args {
     #[arg(long)]
     no_implicit_conversions: bool,
 
+    /// Disallow using libc package (allow_libc = false)
+    #[arg(long)]
+    no_libc: bool,
+
     /// Print syntax-highlighted source code
     #[arg(long)]
     highlight: bool,
@@ -148,6 +152,7 @@ fn handle0(args: Args) {
         args.no_syscalls,
         args.no_unsafe,
         args.no_implicit_conversions,
+        args.no_libc,
     );
 
     let input_path = std::path::PathBuf::from(&args.input);

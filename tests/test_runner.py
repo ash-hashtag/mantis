@@ -54,9 +54,10 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
 
-    # Find all .ms examples
+    # Find all .ms examples and tests
     example_dir = os.path.join(project_root, "examples")
-    ms_files = sorted(glob.glob(os.path.join(example_dir, "*.ms")))
+    lang_test_dir = os.path.join(project_root, "tests", "language")
+    ms_files = sorted(glob.glob(os.path.join(example_dir, "*.ms")) + glob.glob(os.path.join(lang_test_dir, "*.ms")))
 
     if not ms_files:
         print(f"No .ms files found in {example_dir}")

@@ -122,14 +122,20 @@ impl Parser {
     }
 
     fn parse_declaration(&mut self) -> PResult<Declaration> {
+        let is_pub = self.eat(&Token::Pub);
         match self.peek() {
             Some(Token::Async) => {
                 self.advance();
                 let mut fn_decl = self.parse_fn_decl()?;
                 fn_decl.is_async = true;
+                fn_decl.is_pub = is_pub;
                 Ok(Declaration::Function(fn_decl))
             }
-            Some(Token::Fn) => Ok(Declaration::Function(self.parse_fn_decl()?)),
+            Some(Token::Fn) => {
+                let mut fn_decl = self.parse_fn_decl()?;
+                fn_decl.is_pub = is_pub;
+                Ok(Declaration::Function(fn_decl))
+            }
             Some(Token::Type) => Ok(Declaration::TypeDef(self.parse_type_def()?)),
             Some(Token::Import) => Ok(Declaration::Import(self.parse_import()?)),
             Some(Token::Use) => Ok(Declaration::Use(self.parse_use()?)),
@@ -316,6 +322,7 @@ impl Parser {
             body,
             is_extern,
             is_async: false,
+            is_pub: false,
             trailing_params,
             span,
         })
@@ -443,8 +450,13 @@ impl Parser {
         let name = self.parse_type_name()?;
         self.expect(&Token::LBrace)?;
         let mut methods = Vec::new();
-        while matches!(self.peek(), Some(Token::Fn)) {
-            methods.push(self.parse_fn_decl()?);
+        while matches!(self.peek(), Some(Token::Fn | Token::Pub | Token::Async)) {
+            let is_pub = self.eat(&Token::Pub);
+            let is_async = self.eat(&Token::Async);
+            let mut method = self.parse_fn_decl()?;
+            method.is_pub = is_pub;
+            method.is_async = is_async;
+            methods.push(method);
         }
         let end = self.expect(&Token::RBrace)?;
         Ok(TraitDef {
@@ -484,8 +496,13 @@ impl Parser {
 
         self.expect(&Token::LBrace)?;
         let mut methods = Vec::new();
-        while matches!(self.peek(), Some(Token::Fn)) {
-            methods.push(self.parse_fn_decl()?);
+        while matches!(self.peek(), Some(Token::Fn | Token::Pub | Token::Async)) {
+            let is_pub = self.eat(&Token::Pub);
+            let is_async = self.eat(&Token::Async);
+            let mut method = self.parse_fn_decl()?;
+            method.is_pub = is_pub;
+            method.is_async = is_async;
+            methods.push(method);
         }
         let end = self.expect(&Token::RBrace)?;
 
@@ -1215,7 +1232,12 @@ impl Parser {
                     }
                 }
 
-                if self.is_struct_init_start() {
+                let is_colon_struct_init = matches!(self.peek(), Some(Token::LBrace))
+                    && matches!(self.peek_nth(1), Some(Token::Ident(_)))
+                    && matches!(self.peek_nth(2), Some(Token::Colon));
+                let is_upper_struct_init = ident.name.chars().next().map_or(false, |c| c.is_uppercase() || c == '#') && self.is_struct_init_start();
+
+                if is_colon_struct_init || is_upper_struct_init {
                     let ty = TypeExpr::Named(ident);
                     return self.parse_struct_init_with_type(ty);
                 }
@@ -1234,7 +1256,15 @@ impl Parser {
         match expr {
             Expr::Ident(id) => Some(TypeExpr::Named(id.clone())),
             Expr::Field { object, field, .. } => {
-                let base = Self::expr_to_type(object)?;
+                if !field.name.chars().next().map_or(false, |c| c.is_uppercase() || c == '#') {
+                    return None;
+                }
+                let base = match &**object {
+                    Expr::Ident(id) => Some(TypeExpr::Named(id.clone())),
+                    Expr::Field { .. } => Self::expr_to_type(object),
+                    Expr::TypeExpr(ty) => Some(ty.clone()),
+                    _ => None,
+                }?;
                 Some(TypeExpr::Nested(
                     Box::new(base),
                     Box::new(TypeExpr::Named(field.clone())),

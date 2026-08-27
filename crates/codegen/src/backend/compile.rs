@@ -327,6 +327,7 @@ fn expand_async_functions(declarations: &mut Vec<Declaration>) {
                     }),
                     is_extern: false,
                     is_async: false,
+                    is_pub: true,
                     trailing_params: None,
                     span,
                 };
@@ -495,6 +496,13 @@ pub fn compile_binary(
             },
         );
         fields.insert(
+            "ptr".into(),
+            MsStructFieldValue {
+                offset: 0,
+                ty: i64_ty.id,
+            },
+        );
+        fields.insert(
             "len".into(),
             MsStructFieldValue {
                 offset: 8,
@@ -502,10 +510,14 @@ pub fn compile_binary(
             },
         );
         let str_slice_ty = MsStructType::new(fields, 16);
-        ms_ctx
+        let str_slice_id = ms_ctx
             .current_module
             .type_registry
             .add_type("StrSlice", MsType::Struct(Rc::new(str_slice_ty)));
+        ms_ctx
+            .current_module
+            .type_registry
+            .add_alias("Str", str_slice_id);
     }
 
     // Register pointer template

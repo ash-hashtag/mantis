@@ -49,6 +49,8 @@ pub enum ProjectKind {
 
 #[derive(Debug, Clone)]
 pub struct MantisConfig {
+    /// Allow importing and using the libc package
+    pub allow_libc: bool,
     /// Declare/link C functions (`fn puts(...) extern;`).
     pub allow_external_functions: bool,
     /// Declare libc functions that are thin syscall wrappers.
@@ -70,6 +72,7 @@ pub struct ProjectConfig {
 impl Default for MantisConfig {
     fn default() -> Self {
         MantisConfig {
+            allow_libc: true,
             allow_external_functions: true,
             allow_syscalls: true,
             allow_unsafe: true,
@@ -104,8 +107,15 @@ struct ProjectSection {
 #[serde(default)]
 struct CompilerSection {
     #[serde(
+        rename = "allow-libc",
+        alias = "allow_libc",
+        alias = "allowLibc"
+    )]
+    allow_libc: Option<bool>,
+    #[serde(
         rename = "allow-external-functions",
-        alias = "allow_external_functions"
+        alias = "allow_external_functions",
+        alias = "allowExternalFunctions"
     )]
     allow_external_functions: Option<bool>,
     #[serde(rename = "allow-syscalls", alias = "allow_syscalls")]
@@ -143,6 +153,9 @@ impl MantisConfig {
             cfg.project.out_dir = dir;
         }
         let c = file.compiler;
+        if let Some(v) = c.allow_libc {
+            cfg.allow_libc = v;
+        }
         if let Some(v) = c.allow_external_functions {
             cfg.allow_external_functions = v;
         }
@@ -186,6 +199,7 @@ impl MantisConfig {
         no_syscalls: bool,
         no_unsafe: bool,
         no_implicit_conversions: bool,
+        no_libc: bool,
     ) {
         if no_external_functions {
             self.allow_external_functions = false;
@@ -198,6 +212,9 @@ impl MantisConfig {
         }
         if no_implicit_conversions {
             self.allow_implicit_conversions = false;
+        }
+        if no_libc {
+            self.allow_libc = false;
         }
     }
 }
@@ -245,9 +262,30 @@ allow-syscalls = false
     #[test]
     fn cli_overrides_win() {
         let mut c = MantisConfig::from_toml("[compiler]\nallow-unsafe = true\n").unwrap();
-        c.apply_cli_overrides(false, false, true, false);
+        c.apply_cli_overrides(false, false, true, false, false);
         assert!(!c.allow_unsafe);
         assert!(c.allow_implicit_conversions);
+    }
+
+    #[test]
+    fn parses_allow_libc() {
+        let c = MantisConfig::from_toml(
+            r#"
+[compiler]
+allowLibc = false
+"#,
+        )
+        .unwrap();
+        assert!(!c.allow_libc);
+
+        let c2 = MantisConfig::from_toml(
+            r#"
+[compiler]
+allow-libc = true
+"#,
+        )
+        .unwrap();
+        assert!(c2.allow_libc);
     }
 
     #[test]
@@ -315,6 +353,22 @@ impl MantisConfig {
                 }
             }
             Declaration::Static(s) => self.check_type(&s.ty, s.span, out),
+            Declaration::Use(u) => {
+                if u.path.iter().any(|id| id.name.as_str() == "libc") && !self.allow_libc {
+                    out.push(format!(
+                        "use of 'libc' is not allowed (allow_libc = false) at span {:?}",
+                        u.path[0].span
+                    ));
+                }
+            }
+            Declaration::Import(i) => {
+                if i.path.iter().any(|id| id.name.as_str() == "libc") && !self.allow_libc {
+                    out.push(format!(
+                        "import of 'libc' is not allowed (allow_libc = false) at span {:?}",
+                        i.path[0].span
+                    ));
+                }
+            }
             _ => {}
         }
     }

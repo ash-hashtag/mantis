@@ -245,8 +245,10 @@ pub fn compile_function(
         rets: return_ty,
         fn_type: if function.is_extern {
             FunctionType::Extern
-        } else {
+        } else if function.is_pub {
             FunctionType::Public
+        } else {
+            FunctionType::Private
         },
     });
     ms_ctx
@@ -453,11 +455,20 @@ pub fn compile_assignment(
         panic!("{lhs} is marked immutable");
     }
 
-    assert!(
-        variable.ty_id == rhs.ty(),
-        "{} are not equal types {}",
-        variable.ty_id,
-        rhs.ty()
+    let target_ty = ms_ctx
+        .current_module
+        .type_registry
+        .get_from_type_id(variable.ty_id)
+        .unwrap();
+    let rhs = implicit_cast(
+        rhs,
+        crate::registries::types::MsTypeWithId {
+            id: variable.ty_id,
+            ty: target_ty,
+        },
+        module,
+        fbx,
+        ms_ctx,
     );
 
     let ty = ms_ctx
@@ -668,9 +679,12 @@ pub fn compile_node(
             let ty = ms_ctx
                 .current_module
                 .resolve(ty)
-                .expect("undefined type")
-                .ty()
-                .unwrap();
+                .and_then(|r| r.ty())
+                .unwrap_or_else(|| {
+                    let ptr_i64 = MsType::Ref(Box::new(MsType::Native(MsNativeType::I64)), false);
+                    let id = ms_ctx.current_module.type_registry.get_or_add_type(ptr_i64.clone());
+                    crate::registries::types::MsTypeWithId { id, ty: ptr_i64 }
+                });
             let value = compile_cast(value, ty.clone(), module, fbx, ms_ctx);
             return Some(value);
         }
@@ -953,9 +967,8 @@ pub fn compile_node(
         },
         Expr::Call { callee, args, span } => {
             if let Expr::Field { object, field, .. } = &**callee {
-                let obj_node_res = compile_node(object, module, fbx, ms_ctx);
-                if obj_node_res.is_none() {
-                    if let Expr::Ident(mod_ident) = &**object {
+                if let Expr::Ident(mod_ident) = &**object {
+                    if mod_ident.name == "libc" {
                         let full_fn_name = format!("{}.{}", mod_ident.name, field.name);
                         let simple_fn_name = field.name.to_string();
                         let maybe_mod_func = ms_ctx
@@ -979,24 +992,31 @@ pub fn compile_node(
                                 .map(|x| compile_node(x, module, fbx, ms_ctx).unwrap())
                                 .collect();
 
-                            let args_cl_vals: Vec<Value> = args_res
-                                .iter()
-                                .zip(func.arguments.values())
-                                .map(|(x, input_ty)| {
+                            let mut args_cl_vals: Vec<Value> = Vec::new();
+                            let mut arg_idx = 0;
+                            for a in args_res {
+                                let mut val = a.value(fbx, ms_ctx);
+                                if let Some(&expected_ty_id) = func.arguments.values().nth(arg_idx) {
                                     let expected_ty = ms_ctx
                                         .current_module
                                         .type_registry
-                                        .get_from_type_id(*input_ty)
-                                        .unwrap();
-                                    let target_ty = MsTypeWithId {
-                                        id: *input_ty,
-                                        ty: expected_ty,
-                                    };
-                                    let casted =
-                                        compile_cast(x.clone(), target_ty, module, fbx, ms_ctx);
-                                    casted.value(fbx, ms_ctx)
-                                })
-                                .collect();
+                                        .get_from_type_id(expected_ty_id);
+                                    let actual_ty = ms_ctx
+                                        .current_module
+                                        .type_registry
+                                        .get_from_type_id(a.ty());
+
+                                    if let (Some(MsType::Native(actual)), Some(MsType::Native(expected))) =
+                                        (actual_ty, expected_ty)
+                                    {
+                                        if actual != expected {
+                                            val = actual.cast_to(val, &MsType::Native(expected), fbx);
+                                        }
+                                    }
+                                }
+                                args_cl_vals.push(val);
+                                arg_idx += 1;
+                            }
 
                             let inst = fbx.ins().call(func_ref, &args_cl_vals);
                             let result = fbx.inst_results(inst);
@@ -1019,6 +1039,7 @@ pub fn compile_node(
                         }
                     }
                 }
+                let obj_node_res = compile_node(object, module, fbx, ms_ctx);
                 // `Type.method(...)` where Type is a generic template must not be
                 // treated as a receiver method call on the type's placeholder —
                 // it is handled further below via trait_generic_templates.
@@ -1188,6 +1209,7 @@ pub fn compile_node(
                         }
                     }
 
+
                     let maybe_func = ms_ctx
                         .current_module
                         .type_fn_registry
@@ -1196,13 +1218,36 @@ pub fn compile_node(
                         .and_then(|entry| entry.registry.get(method_name).cloned())
                         .or_else(|| {
                             let fn_type_expr = expr_to_type_expr(callee);
-                            for (_tmpl_name, templates) in
-                                &ms_ctx.current_module.trait_generic_templates.registry
-                            {
+                            let full_type_name = ms_ctx.current_module.type_registry.name_of(search_ty_id).unwrap_or_default();
+                            let mut base_name = full_type_name.split("[").next().unwrap_or(&full_type_name).to_string();
+                            if !ms_ctx.current_module.trait_generic_templates.registry.contains_key(base_name.as_str()) {
+                                if let Some(MsType::Struct(sty)) = ms_ctx.current_module.type_registry.get_from_type_id(search_ty_id) {
+                                    for (tmpl_name, tmpl) in &ms_ctx.current_module.type_templates.registry {
+                                        if let crate::registries::types::MsGenericTemplateInner::Struct(s) = &tmpl.inner_type {
+                                            if s.map.len() == sty.field_list().len() && s.map.keys().all(|k| sty.get_field(k.as_ref()).is_some()) {
+                                                base_name = tmpl_name.to_string();
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(templates) = ms_ctx.current_module.trait_generic_templates.registry.get(base_name.as_str()) {
                                 if let Some(method_template) = templates.iter().find(|t| {
                                     t.decl.name.as_ref().and_then(|n| n.as_name())
                                         == Some(method_name)
                                 }) {
+                                    let generic_arg_ty = if let (Some(open), Some(close)) = (full_type_name.find('['), full_type_name.rfind(']')) {
+                                        let inner_name = &full_type_name[open + 1..close];
+                                        if let Ok(num_id) = inner_name.parse::<u32>() {
+                                            let ty_id = MsTypeId(num_id);
+                                            ms_ctx.current_module.type_registry.get_from_type_id(ty_id).map(|ty| MsTypeWithId { id: ty_id, ty })
+                                        } else {
+                                            ms_ctx.current_module.type_registry.get_from_str(inner_name)
+                                        }
+                                    } else {
+                                        None
+                                    };
                                     let elem_ty_id = match &obj_ty {
                                         MsType::Struct(s) => s.get_field("ptr").and_then(|f| {
                                             ms_ctx
@@ -1221,22 +1266,23 @@ pub fn compile_node(
                                         },
                                         _ => None,
                                     };
-                                    let elem_ty =
-                                        if let Some(MsType::Ref(elem_inner, _)) = elem_ty_id {
-                                            MsTypeWithId {
-                                                id: ms_ctx
-                                                    .current_module
-                                                    .type_registry
-                                                    .get_or_add_type((*elem_inner).clone()),
-                                                ty: (*elem_inner).clone(),
-                                            }
-                                        } else {
-                                            ms_ctx
+                                    let elem_ty = if let Some(g_ty) = generic_arg_ty {
+                                        g_ty
+                                    } else if let Some(MsType::Ref(elem_inner, _)) = elem_ty_id {
+                                        MsTypeWithId {
+                                            id: ms_ctx
                                                 .current_module
                                                 .type_registry
-                                                .get_from_str("u8")
-                                                .unwrap()
-                                        };
+                                                .get_or_add_type((*elem_inner).clone()),
+                                            ty: (*elem_inner).clone(),
+                                        }
+                                    } else {
+                                        ms_ctx
+                                            .current_module
+                                            .type_registry
+                                            .get_from_str("u8")
+                                            .unwrap()
+                                    };
                                     let real_types = vec![MsResolved::Type(elem_ty)];
                                     let func = instantiate_generic_function(
                                         method_template.clone(),
@@ -1328,8 +1374,7 @@ pub fn compile_node(
                             arg_idx += 1;
                         }
 
-                        eprintln!("DBG-SITE-A funcid={} nvals={} rets={:?} sret={}",
-                            func.func_id.as_u32(), call_arg_values.len(), func.rets.map(|r| r.0), returns_a_struct_ptr.is_some());
+                        
                         let func_ref = module.declare_func_in_func(func.func_id, fbx.func);
                         let inst = fbx.ins().call(func_ref, &call_arg_values);
                         let result = fbx.inst_results(inst);
@@ -1454,29 +1499,50 @@ pub fn compile_node(
                         .get_from_type_id(current_ty_id)
                         .unwrap();
                     if let MsType::Ref(inner, _) = ty {
-                        if let Some(inner_id) =
-                            ms_ctx.current_module.type_registry.get_id_from_type(&inner)
-                        {
-                            current_ty_id = inner_id;
-                            type_entry = ms_ctx
-                                .current_module
-                                .type_fn_registry
-                                .map
-                                .get(&current_ty_id);
-                        }
+                        current_ty_id = ms_ctx.current_module.type_registry.get_or_add_type(*inner);
                     }
+                    crate::backend::drop_gen::ensure_type_methods(current_ty_id, ms_ctx, module);
+                    type_entry = ms_ctx
+                        .current_module
+                        .type_fn_registry
+                        .map
+                        .get(&current_ty_id);
                 }
 
-                if type_entry.is_none() {
+                let func_opt = type_entry
+                    .and_then(|reg| reg.registry.get(method_name).cloned())
+                    .or_else(|| {
+                        let base_name_opt = ms_ctx
+                            .current_module
+                            .type_registry
+                            .name_of(current_ty_id)
+                            .map(|full_name| full_name.split("[").next().unwrap_or(&full_name).to_string());
+                        
+                        if let Some(ref base_name) = base_name_opt {
+                            if let Some(templates) = ms_ctx.current_module.trait_generic_templates.registry.get(base_name.as_str()) {
+                                if let Some(tmpl) = templates.iter().find(|t| t.decl.name.as_ref().and_then(|n| n.as_name()) == Some(method_name)) {
+                                    let fn_expr = MsTokenType::Named(mantis_parser::ast::Ident::new(format!("{}Method", base_name), mantis_parser::token::Span::new(0, 0)));
+                                    return Some(instantiate_generic_function(tmpl.clone(), vec![], &fn_expr, ms_ctx, module));
+                                }
+                            }
+                        }
+                        for (base_name, templates) in &ms_ctx.current_module.trait_generic_templates.registry {
+                            if let Some(tmpl) = templates.iter().find(|t| t.decl.name.as_ref().and_then(|n| n.as_name()) == Some(method_name)) {
+                                let fn_expr = MsTokenType::Named(mantis_parser::ast::Ident::new(format!("{}Method", base_name), mantis_parser::token::Span::new(0, 0)));
+                                return Some(instantiate_generic_function(tmpl.clone(), vec![], &fn_expr, ms_ctx, module));
+                            }
+                        }
+                        None
+                    });
+
+                let func = func_opt.unwrap_or_else(|| {
                     panic!(
-                        "type {:?} has no methods. Method name: {}",
-                        var.ty_id, method_name
+                        "type {:?} has no method {}. (callee: {:?})",
+                        var.ty_id, method_name, callee
                     );
-                }
-                let reg = type_entry.unwrap();
-                let func = reg.registry.get(method_name).expect("method not found");
+                });
                 method_on_variable = Some(var.clone());
-                MsResolved::Function(func.clone())
+                MsResolved::Function(func)
             } else {
                 if let Some(name) = fn_type_expr.as_name() {
                     if let Some(var) = ms_ctx.var_scopes.find_variable(name) {
@@ -1724,8 +1790,10 @@ pub fn compile_node(
                     .unwrap()
                     .id;
                 return Some(NodeResult::Val(MsVal::new(func_ty_id, func_ptr)));
+            } else if var_name == "libc" || var_name == "std" || ms_ctx.current_module.submodules.contains_key(var_name) {
+                return None;
             } else {
-                panic!("undefined {} word or type name in current scope", var_name,);
+                panic!("undefined {} word or type name in current scope", var_name);
             }
         }
         Expr::Field {
@@ -1757,6 +1825,7 @@ pub fn compile_node(
 
             let obj_node = compile_node(object, module, fbx, ms_ctx)?;
             let child = MsTokenType::Named(field.clone());
+
             return Some(compile_nested_struct_access(
                 obj_node, &child, ms_ctx, fbx, module,
             ));
@@ -1992,21 +2061,21 @@ pub fn compile_node(
                 let Some(arg) = args.first() else {
                     panic!("#size_of requires an argument");
                 };
-                let resolved = match arg {
+                let size = match arg {
                     Expr::TypeExpr(ty) => ms_ctx.current_module.resolve(ty),
                     Expr::Ident(id) => ms_ctx.current_module.resolve_from_str(&id.name),
                     _ => panic!("Expected type for #size_of"),
                 }
-                .expect("undefined type")
-                .ty()
-                .expect("not a type");
+                .and_then(|r| r.ty())
+                .map(|t| t.ty.size() as i64)
+                .unwrap_or(8);
 
                 let i64_ty = ms_ctx
                     .current_module
                     .type_registry
                     .get_from_str("i64")
                     .unwrap();
-                let value = fbx.ins().iconst(types::I64, resolved.ty.size() as i64);
+                let value = fbx.ins().iconst(types::I64, size);
                 return Some(NodeResult::Val(MsVal::new(i64_ty.id, value)));
             }
             if name == "as_ref" || name == "ref" {
@@ -2338,9 +2407,13 @@ pub fn compile_nested_struct_access(
                     }
                 }
 
-                let field = struct_ty
-                    .get_field(field_name)
-                    .expect(&format!("unknown field in struct {}", field_name));
+                let field = match struct_ty.get_field(field_name) {
+                    Some(f) => f.clone(),
+                    None => {
+                        let name = ms_ctx.current_module.type_registry.name_of(var.ty()).unwrap_or("unknown".to_string());
+                        panic!("unknown field in struct {}: looking for {} on ty_id={:?} name={:?} struct={:?}, child={:?}", field_name, field_name, var.ty(), name, struct_ty, child);
+                    }
+                };
 
                 let offset = field.offset;
                 let target_ty_id = field.ty;
@@ -2384,9 +2457,13 @@ pub fn compile_nested_struct_access(
             }
             MsTokenType::Nested(parent_ty, child_ty) => {
                 let field_name = parent_ty.as_name().unwrap();
-                let field = struct_ty
-                    .get_field(field_name)
-                    .expect(&format!("unknown field in struct {}", field_name));
+                let field = match struct_ty.get_field(field_name) {
+                    Some(f) => f.clone(),
+                    None => {
+                        let name = ms_ctx.current_module.type_registry.name_of(var.ty()).unwrap_or("unknown".to_string());
+                        panic!("unknown field in struct {}: looking for {} on ty_id={:?} name={:?} struct={:?}, child={:?}", field_name, field_name, var.ty(), name, struct_ty, child);
+                    }
+                };
 
                 let offset = field.offset;
                 let target_ty_id = field.ty;
@@ -2454,6 +2531,7 @@ pub fn implicit_cast(
         return NodeResult::Val(MsVal::new(ty.id, var.value(fbx, ms_ctx)));
     }
 
+
     // Allow casting between scalar native types, pointers, or references
     match (&actual_ty, &ty.ty) {
         (MsType::Native(_), MsType::Native(_)) => {
@@ -2467,6 +2545,38 @@ pub fn implicit_cast(
         }
         (MsType::Ref(..), MsType::Ref(..)) => {
             return NodeResult::Val(MsVal::new(ty.id, var.value(fbx, ms_ctx)));
+        }
+        (MsType::Ref(..), MsType::Struct(sty)) => {
+            if (sty.get_field("ptr").is_some() || sty.get_field("pointer").is_some())
+                && sty.get_field("len").is_some()
+            {
+                let ptr_val = var.value(fbx, ms_ctx);
+                let ss = fbx.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    sty.size() as u32,
+                    0,
+                ));
+                let struct_addr = fbx.ins().stack_addr(types::I64, ss, 0);
+                let ptr_field = sty
+                    .get_field("ptr")
+                    .or_else(|| sty.get_field("pointer"))
+                    .unwrap();
+                let len_field = sty.get_field("len").unwrap();
+                fbx.ins().store(
+                    MemFlagsData::new(),
+                    ptr_val,
+                    struct_addr,
+                    ptr_field.offset as i32,
+                );
+                let len_val = fbx.ins().iconst(types::I64, 0);
+                fbx.ins().store(
+                    MemFlagsData::new(),
+                    len_val,
+                    struct_addr,
+                    len_field.offset as i32,
+                );
+                return NodeResult::Val(MsVal::new(ty.id, struct_addr));
+            }
         }
         _ => {}
     }
@@ -2642,9 +2752,11 @@ pub fn compile_statements(
                     // constructors): copy the contents, don't store the pointer.
                     MsType::Struct(sty) => {
                         sty.copy(ptr, value, fbx, module, ms_ctx);
+                        fbx.def_var(variable, ptr);
                     }
                     MsType::Enum(eny) => {
                         eny.copy(ptr, value, fbx, module, ms_ctx);
+                        fbx.def_var(variable, ptr);
                     }
                     _ => {
                         fbx.ins().store(MemFlagsData::new(), value, ptr, 0);
@@ -3187,7 +3299,25 @@ pub fn instantiate_generic_function(
         Some(MsTokenType::Generic(base, _)) => base.as_name().unwrap_or("unknown"),
         _ => "unknown",
     };
-    let instantiation_name = format!("{}_{:?}", name_str, real_types);
+    let type_prefix = match _fn_type_expr {
+        MsTokenType::Named(id) => id.name.clone(),
+        MsTokenType::Nested(root, child) => {
+            format!("{}_{}", root.as_name().unwrap_or(""), child.as_name().unwrap_or(""))
+        }
+        MsTokenType::Generic(base, _) => match base.as_ref() {
+            MsTokenType::Named(id) => id.name.clone(),
+            MsTokenType::Nested(root, child) => {
+                format!("{}_{}", root.as_name().unwrap_or(""), child.as_name().unwrap_or(""))
+            }
+            _ => "".into(),
+        },
+        _ => "".into(),
+    };
+    let instantiation_name = if type_prefix.is_empty() {
+        format!("{}_{:?}", name_str, real_types)
+    } else {
+        format!("{}_{}_{:?}", type_prefix, name_str, real_types)
+    };
 
     if let Some(func) = ms_ctx
         .current_module
@@ -3530,12 +3660,26 @@ fn unify_type_expr_with_concrete(
             }
         }
         MsTokenType::Generic(base, args) => {
-            // e.g. Array[T] matched with concrete.
-            // If concrete is a struct named like base?
-            if let MsType::Struct(sty) = concrete {
-                // Unfortunately MsStructType doesn't store its base template name easily.
-                // But we can try to parse the name if it's "Name[...]"
-                // Or we can just skip this for now.
+            if let Some(concrete_id) = ms_ctx.current_module.type_registry.get_id_from_type(concrete) {
+                let name_opt = ms_ctx.current_module.type_registry.name_of(concrete_id);
+                
+                if let Some(name) = name_opt {
+                    if let (Some(open), Some(close)) = (name.find('['), name.rfind(']')) {
+                        let inner_names_str = &name[open + 1..close];
+                        if args.len() == 1 {
+                            if let MsTokenType::Named(id) = &args[0] {
+                                if generic_names.iter().any(|g| g.as_ref() == id.name.as_str()) {
+                                    if let Ok(num_id) = inner_names_str.parse::<u32>() {
+                                        let ty_id = MsTypeId(num_id);
+                                        map.insert(id.name.as_str().into(), ty_id);
+                                    } else if let Some(inner_ty) = ms_ctx.current_module.type_registry.get_from_str(inner_names_str) {
+                                        map.insert(id.name.as_str().into(), inner_ty.id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         _ => {}
