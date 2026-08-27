@@ -1,131 +1,109 @@
-use std.memory;
-use std.array;
+use libc;
 
 pub type Vec[T] = struct {
-    buf Box[Array[T]],
+    ptr @T,
     size u64,
     cap u64
-}
+};
 
 impl[T] Vec[T] {
+    pub fn new() Vec[T] {
+        return Vec {
+            ptr: 0 as @T,
+            size: 0,
+            cap: 0
+        };
+    }
+
     pub fn with_capacity(cap u64) Vec[T] {
-        let arr = Array.with_capacity[T](cap);
-        let b = Box.new(arr);
-        return Vec[T] {
-            buf: b,
+        if cap == 0 {
+            return Vec {
+                ptr: 0 as @T,
+                size: 0,
+                cap: 0
+            };
+        }
+        let elem_size = #size_of(T);
+        let ptr = libc.malloc((cap as i64) * (elem_size as i64));
+        return Vec {
+            ptr: ptr as @T,
             size: 0,
             cap: cap
         };
     }
 
-    pub fn new() Vec[T] {
-        return Vec.with_capacity[T](0);
-    }
-
-    pub fn len(self @Vec[T]) u64 {
+    pub fn len(self) u64 {
         return self.size;
     }
 
-    pub fn capacity(self @Vec[T]) u64 {
-        return self.cap;
-    }
-
-    pub fn is_empty(self @Vec[T]) bool {
+    pub fn is_empty(self) bool {
         return self.size == 0;
     }
 
-    pub fn as_ptr(self @Vec[T]) @T {
-        return self.buf.get().ptr;
+    pub fn as_ptr(self) @T {
+        return self.ptr;
     }
 
-    pub fn as_array(self @Vec[T]) Array[T] {
-        return self.buf.get().slice(0, self.size);
-    }
-
-    pub fn as_slice(self @Vec[T]) Array[T] {
-        return self.buf.get().slice(0, self.size);
-    }
-
-    pub fn reserve(self @Vec[T], additional u64) {
+    pub fn reserve(mut self, additional u64) {
         let needed = self.size + additional;
-        if needed > self.cap {
-            let mut new_cap = 4 as u64;
-            loop {
-                if new_cap >= needed {
-                    break;
-                }
-                new_cap = new_cap * 2;
-            }
-            let new_arr = Array.with_capacity[T](new_cap);
-            if self.size > 0 {
-                let old_ptr = self.buf.get().ptr;
-                GlobalAllocator.copy_bytes(new_arr.ptr as i64, old_ptr as i64, self.size * #size_of(T));
-                if self.cap > 0 {
-                    GlobalAllocator.dealloc(old_ptr as i64);
-                }
-            }
-            let new_box = Box.new(new_arr);
-            self.buf = new_box;
-            self.cap = new_cap;
+        if needed <= self.cap {
+            return;
         }
+        let mut new_cap = self.cap * 2;
+        if new_cap < needed {
+            new_cap = needed;
+        }
+        if new_cap < 8 {
+            new_cap = 8;
+        }
+        let elem_size = #size_of(T);
+        let new_size = (new_cap as i64) * (elem_size as i64);
+        let mut new_ptr = 0 as @T;
+        if (self.ptr as i64) == 0 {
+            new_ptr = libc.malloc(new_size) as @T;
+        } else {
+            new_ptr = libc.realloc(self.ptr as i64, new_size) as @T;
+        }
+        self.ptr = new_ptr;
+        self.cap = new_cap;
     }
 
-    pub fn get(self @Vec[T], index u64) T {
-        return self.buf.get().get(index);
+    pub fn get(self, index u64) T {
+        let elem_size = #size_of(T);
+        let elem_ptr = (self.ptr as i64) + ((index as i64) * (elem_size as i64));
+        let mut res = 0 as T;
+        libc.memcpy((&res) as @i64, elem_ptr as @i64, elem_size as i64);
+        return res;
     }
 
-    pub fn set(self @Vec[T], index u64, el T) {
-        self.buf.get().set(index, el);
+    pub fn set(mut self, index u64, val T) bool {
+        if index >= self.size {
+            return false;
+        }
+        let elem_size = #size_of(T);
+        let elem_ptr = (self.ptr as i64) + ((index as i64) * (elem_size as i64));
+        libc.memcpy(elem_ptr as @i64, (&val) as @i64, elem_size as i64);
+        return true;
     }
 
-    pub fn push(self @Vec[T], el T) {
+    pub fn push(mut self, val T) {
         self.reserve(1);
-        self.buf.get().set(self.size, el);
+        let elem_size = #size_of(T);
+        let elem_ptr = (self.ptr as i64) + ((self.size as i64) * (elem_size as i64));
+        libc.memcpy(elem_ptr as @i64, (&val) as @i64, elem_size as i64);
         self.size = self.size + 1;
     }
 
-    pub fn pop(self @Vec[T]) T {
-        if self.size > 0 {
-            self.size = self.size - 1;
-            return self.buf.get().get(self.size);
-        }
-        return self.buf.get().get(0);
-    }
-
-    pub fn clear(self @Vec[T]) {
+    pub fn clear(mut self) {
         self.size = 0;
     }
 
-    pub fn free(self @Vec[T]) {
-        if self.cap > 0 {
-            let p = self.buf.get().ptr;
-            GlobalAllocator.dealloc(p as i64);
+    pub fn free(mut self) {
+        if (self.ptr as i64) != 0 {
+            libc.free(self.ptr as i64);
+            self.ptr = 0 as @T;
             self.size = 0;
             self.cap = 0;
         }
-    }
-}
-
-impl[T] AsRef[Array[T]] for Vec[T] {
-    pub fn as_ref(self @Vec[T]) Array[T] {
-        return self.buf.get().slice(0, self.size);
-    }
-}
-
-impl[T] Deref[Array[T]] for Vec[T] {
-    pub fn deref(self @Vec[T]) Array[T] {
-        return self.buf.get().slice(0, self.size);
-    }
-}
-
-impl[T] AsRef[T] for Vec[T] {
-    pub fn as_ref(self @Vec[T]) @T {
-        return self.buf.get().ptr;
-    }
-}
-
-impl[T] Deref[T] for Vec[T] {
-    pub fn deref(self @Vec[T]) @T {
-        return self.buf.get().ptr;
     }
 }

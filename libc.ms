@@ -18,11 +18,25 @@ fn atoi(str i64) i32 extern ;
 fn atof(str i64) f64 extern ;
 
 // ── File I/O & System Calls ──────────────────────────────────────────────────
-fn open(pathname i64, flags i32) i32 extern ;
+fn open(pathname i64, flags i32, mode i32) i32 extern ;
 fn close(fd i32) i32 extern ;
 fn read(fd i64, buf i64, count i64) i64 extern ;
 fn write(fd i64, buf i64, count i64) i64 extern ;
 fn lseek(fd i32, offset i64, whence i32) i64 extern ;
+fn access(pathname i64, mode i32) i32 extern ;
+fn unlink(pathname i64) i32 extern ;
+fn mkdir(pathname i64, mode u32) i32 extern ;
+
+// ── Environment & Process ───────────────────────────────────────────────────
+fn getenv(name i64) i64 extern ;
+fn setenv(name i64, value i64, overwrite i32) i32 extern ;
+fn unsetenv(name i64) i32 extern ;
+fn getcwd(buf i64, size u64) i64 extern ;
+fn system(command i64) i32 extern ;
+fn exit(code i32) extern ;
+fn usleep(usec u32) i32 extern ;
+fn sched_yield() i32 extern ;
+fn time(tloc i64) i64 extern ;
 
 // ── Sockets & Networking ─────────────────────────────────────────────────────
 fn socket(domain i32, type_i32 i32, protocol i32) i32 extern ;
@@ -48,9 +62,3 @@ fn pthread_cond_wait(cond i64, mutex i64) i32 extern ;
 fn pthread_cond_signal(cond i64) i32 extern ;
 fn pthread_cond_broadcast(cond i64) i32 extern ;
 fn pthread_cond_destroy(cond i64) i32 extern ;
-
-// ── Process & System Controls ────────────────────────────────────────────────
-fn exit(code i32) extern ;
-fn usleep(usec u32) i32 extern ;
-fn sched_yield() i32 extern ;
-fn time(tloc i64) i64 extern ;

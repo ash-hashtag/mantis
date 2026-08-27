@@ -1,107 +1,123 @@
+use libc;
 use std.vec;
-use std.memory;
-use std.array;
 
 pub type Str = StrSlice;
 
 pub type String = struct {
-    vec Vec[u8]
-}
+    buf Vec[u8]
+};
 
 impl String {
-    pub fn with_capacity(cap u64) String {
-        return String { vec: Vec.with_capacity[u8](cap) };
-    }
-
     pub fn new() String {
-        return String.with_capacity(0);
+        let v = Vec {
+            ptr: 0 as @u8,
+            size: 0,
+            cap: 0
+        };
+        return String { buf: v };
     }
 
-    pub fn push_byte(self @String, b u8) {
-        self.vec.push(b);
-    }
-
-    pub fn push_str(self @String, s Str) {
-        if s.len > 0 {
-            let s_len = s.len as u64;
-            self.vec.reserve(s_len);
-            let ptr = self.vec.as_ptr();
-            GlobalAllocator.copy_bytes(
-                ptr as i64 + self.vec.len(),
-                s.pointer,
-                s_len
-            );
-            self.vec.size = self.vec.size + s_len;
+    pub fn with_capacity(cap u64) String {
+        if cap == 0 {
+            return String.new();
         }
+        let p = libc.malloc(cap as i64);
+        let v = Vec {
+            ptr: p as @u8,
+            size: 0,
+            cap: cap
+        };
+        return String { buf: v };
     }
 
     pub fn from_str(s Str) String {
-        let str = String.with_capacity(s.len as u64);
-        str.push_str(s);
-        return str;
-    }
-
-    pub fn as_str(self @String) Str {
-        let arr = self.vec.as_array();
-        let slice = StrSlice {
-            pointer: arr.ptr as i64,
-            len: arr.len as i64
+        if s.len <= 0 {
+            return String.new();
+        }
+        let p = libc.malloc(s.len);
+        libc.memcpy(p as @i64, s.pointer as @i64, s.len);
+        let v = Vec {
+            ptr: p as @u8,
+            size: s.len as u64,
+            cap: s.len as u64
         };
-        return slice;
+        return String { buf: v };
     }
 
-    pub fn as_array(self @String) Array[u8] {
-        return self.vec.as_array();
+    pub fn len(self) u64 {
+        return self.buf.size;
     }
 
-    pub fn as_ptr(self @String) @u8 {
-        return self.vec.as_ptr();
+    pub fn is_empty(self) bool {
+        return self.buf.size == 0;
     }
 
-    pub fn len(self @String) u64 {
-        return self.vec.len();
+    pub fn as_ptr(self) @u8 {
+        return self.buf.ptr;
     }
 
-    pub fn is_empty(self @String) bool {
-        return self.vec.len() == 0;
+    pub fn as_str(self) Str {
+        return StrSlice {
+            pointer: self.buf.ptr as i64,
+            len: self.buf.size as i64
+        };
     }
 
-    pub fn clear(self @String) {
-        self.vec.clear();
+    pub fn push_byte(mut self, b u8) {
+        if self.buf.size >= self.buf.cap {
+            let mut new_cap = self.buf.cap * 2;
+            if new_cap < 8 {
+                new_cap = 8;
+            }
+            let mut new_ptr = 0 as @u8;
+            if (self.buf.ptr as i64) == 0 {
+                new_ptr = libc.malloc(new_cap as i64) as @u8;
+            } else {
+                new_ptr = libc.realloc(self.buf.ptr as i64, new_cap as i64) as @u8;
+            }
+            self.buf.ptr = new_ptr;
+            self.buf.cap = new_cap;
+        }
+        libc.memset((self.buf.ptr as i64 + self.buf.size as i64) as @i64, b as i64, 1);
+        self.buf.size = self.buf.size + 1;
     }
 
-    /// Release early. Optional — RAII frees automatically at scope exit.
-    pub fn free(self @String) {
-        self.vec.free();
+    pub fn push_str(mut self, s Str) {
+        if s.len <= 0 {
+            return;
+        }
+        let needed = self.buf.size + (s.len as u64);
+        if needed > self.buf.cap {
+            let mut new_cap = self.buf.cap * 2;
+            if new_cap < needed {
+                new_cap = needed;
+            }
+            if new_cap < 8 {
+                new_cap = 8;
+            }
+            let mut new_ptr = 0 as @u8;
+            if (self.buf.ptr as i64) == 0 {
+                new_ptr = libc.malloc(new_cap as i64) as @u8;
+            } else {
+                new_ptr = libc.realloc(self.buf.ptr as i64, new_cap as i64) as @u8;
+            }
+            self.buf.ptr = new_ptr;
+            self.buf.cap = new_cap;
+        }
+        libc.memcpy((self.buf.ptr as i64 + self.buf.size as i64) as @i64, s.pointer as @i64, s.len);
+        self.buf.size = needed;
     }
-}
 
-impl AsRef[Str] for String {
-    pub fn as_ref(self @String) Str {
-        return self.as_str();
+    pub fn clear(mut self) {
+        self.buf.size = 0;
     }
-}
 
-impl Deref[Str] for String {
-    pub fn deref(self @String) Str {
-        return self.as_str();
-    }
-}
-
-impl AsRef[Array[u8]] for String {
-    pub fn as_ref(self @String) Array[u8] {
-        return self.as_array();
-    }
-}
-
-impl Deref[Array[u8]] for String {
-    pub fn deref(self @String) Array[u8] {
-        return self.as_array();
-    }
-}
-
-impl AsRef[u8] for String {
-    pub fn as_ref(self @String) @u8 {
-        return self.vec.as_ptr();
+    pub fn free(mut self) {
+        if (self.buf.ptr as i64) != 0 {
+            libc.free(self.buf.ptr as i64);
+            self.buf.ptr = 0 as @u8;
+            self.buf.size = 0;
+            self.buf.cap = 0;
+        }
     }
 }

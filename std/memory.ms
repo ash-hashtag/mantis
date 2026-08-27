@@ -126,9 +126,9 @@ impl[T] Deref[T] for Box[T] {
     }
 }
 
-/// RAII: release the heap allocation when the Box goes out of scope.
-impl[T] Drop for Box[T] {
-    pub fn drop(self @mut Box[T]) {
-        GlobalAllocator.dealloc(self.ptr as i64);
-    }
-}
+// Note: explicit .free() is preferred until borrow/move-checker tracks move elision
+// impl[T] Drop for Box[T] {
+//     pub fn drop(self @mut Box[T]) {
+//         GlobalAllocator.dealloc(self.ptr as i64);
+//     }
+// }
