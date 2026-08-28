@@ -115,9 +115,9 @@ fn main() -> io::Result<()> {
                     let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
                     let line = params["position"]["line"].as_u64().unwrap_or(0) as u32;
                     let character = params["position"]["character"].as_u64().unwrap_or(0) as u32;
-                    let range = server.definition(uri, mantis_lsp::Position { line, character });
-                    let result = match range {
-                        Some(r) => json!({ "uri": uri, "range": r }),
+                    let location = server.definition_location(uri, mantis_lsp::Position { line, character });
+                    let result = match location {
+                        Some(location) => json!(location),
                         None => Value::Null,
                     };
                     let resp = json!({

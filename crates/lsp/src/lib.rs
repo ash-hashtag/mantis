@@ -103,7 +103,7 @@ impl MantisLanguageServer {
 
     pub fn hover(&self, uri: &str, pos: Position) -> Option<Hover> {
         let text = self.documents.get(uri)?;
-        let offset = position_to_offset(text, pos)?;
+        let offset = position_to_offset(text, pos.clone())?;
 
         // Try AST-based resolution first; fall back to keyword/primitive docs
         // even while the file doesn't parse.
@@ -142,6 +142,21 @@ impl MantisLanguageServer {
         let hit = analyze_at_offset(&prog, text, offset)?;
         let def_span = hit.def_span?;
         Some(span_to_range(text, def_span))
+    }
+
+    /// Go-to-definition with module-aware locations. Aliased module members
+    /// must return the imported file URI, not the caller's URI.
+    pub fn definition_location(&self, uri: &str, pos: Position) -> Option<Location> {
+        let text = self.documents.get(uri)?;
+        let offset = position_to_offset(text, pos.clone())?;
+        module_path_definition(uri, text, offset)
+            .or_else(|| module_alias_definition(uri, text, offset))
+            .or_else(|| {
+            self.definition(uri, pos).map(|range| Location {
+                uri: uri.to_string(),
+                range,
+            })
+        })
     }
 
     pub fn completion(&self, uri: &str, _pos: Position) -> Vec<CompletionItem> {
@@ -1811,6 +1826,96 @@ fn contained_type_span(ty: &TypeExpr, offset: usize) -> Option<Span> {
     }
 }
 
+fn module_alias_definition(uri: &str, src: &str, offset: usize) -> Option<Location> {
+    let (member, member_span) = word_at_offset(src, offset)?;
+    let start = member_span.start;
+    if start == 0 || src.as_bytes().get(start - 1) != Some(&b'.') {
+        return None;
+    }
+    let (alias, _) = word_at_offset(src, start - 2)?;
+    let program = parse(src).ok()?;
+    let path = program.declarations.iter().find_map(|decl| match decl {
+        Declaration::Use(u) if u.alias.as_ref().map(|a| a.name.as_str()) == Some(alias.as_str()) => {
+            Some(u.path.iter().map(|p| p.name.clone()).collect::<Vec<_>>())
+        }
+        Declaration::Import(i) if i.alias.as_ref().map(|a| a.name.as_str()) == Some(alias.as_str()) => {
+            Some(i.path.iter().map(|p| p.name.clone()).collect::<Vec<_>>())
+        }
+        _ => None,
+    })?;
+    let (module_uri, module_src) = resolve_module_source(uri, &path)?;
+    let module = parse(&module_src).ok()?;
+    let span = module.declarations.iter().find_map(|decl| match decl {
+        Declaration::Function(f) => f.name.as_ref().and_then(|n| {
+            (n.as_name() == Some(member.as_str())).then_some(n.span())
+        }),
+        Declaration::TypeDef(t) => (t.name.as_name() == Some(member.as_str())).then_some(t.name.span()),
+        Declaration::Trait(t) => (t.name.as_name() == Some(member.as_str())).then_some(t.name.span()),
+        Declaration::Static(s) => (s.name.name == member).then_some(s.name.span),
+        _ => None,
+    })?;
+    Some(Location {
+        uri: module_uri,
+        range: span_to_range(&module_src, span),
+    })
+}
+
+fn module_path_definition(uri: &str, src: &str, offset: usize) -> Option<Location> {
+    let program = parse(src).ok()?;
+    let path = program.declarations.iter().find_map(|decl| {
+        let (parts, spans) = match decl {
+            Declaration::Use(u) => (&u.path, u.path.iter().map(|p| p.span).collect::<Vec<_>>()),
+            Declaration::Import(i) => (&i.path, i.path.iter().map(|p| p.span).collect::<Vec<_>>()),
+            _ => return None,
+        };
+        let index = spans
+            .iter()
+            .position(|span| span.start <= offset && offset <= span.end)?;
+        Some(parts[..=index].iter().map(|part| part.name.clone()).collect::<Vec<_>>())
+    })?;
+    let (module_uri, module_src) = resolve_module_source(uri, &path)?;
+    let target_span = module_src
+        .lines()
+        .next()
+        .map(|line| Span::new(0, line.len()))
+        .unwrap_or(Span::new(0, 0));
+    Some(Location {
+        uri: module_uri,
+        range: span_to_range(&module_src, target_span),
+    })
+}
+
+fn resolve_module_source(uri: &str, path: &[String]) -> Option<(String, String)> {
+    let mut roots = Vec::new();
+    if let Some(file) = uri.strip_prefix("file://") {
+        if let Some(parent) = std::path::Path::new(file).parent() {
+            roots.push(parent.to_path_buf());
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        roots.push(std::path::PathBuf::from(format!("{home}/.mantis/pkgcache")));
+        roots.push(std::path::PathBuf::from(format!("{home}/.mantis/packages")));
+    }
+    roots.push(std::env::current_dir().ok()?);
+    let relative = path.iter().collect::<std::path::PathBuf>();
+    for root in roots {
+        let base = root.join(&relative);
+        let candidates = [
+            base.with_extension("ms"),
+            base.join("src/lib.ms"),
+            base.join("src/main.ms"),
+            base.join("lib.ms"),
+            base.join("mod.ms"),
+        ];
+        for candidate in candidates {
+            if let Ok(content) = std::fs::read_to_string(&candidate) {
+                return Some((format!("file://{}", candidate.display()), content));
+            }
+        }
+    }
+    None
+}
+
 fn word_at_offset(src: &str, offset: usize) -> Option<(String, Span)> {
     let bytes = src.as_bytes();
     if bytes.is_empty() {
@@ -1842,6 +1947,7 @@ pub fn analyze_at_offset(prog: &Program, src: &str, offset: usize) -> Option<Res
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const KEYWORD_DOCS: &[(&str, &str)] = &[
+    ("pub", "Makes a function visible outside its module."),
     ("fn", "Declares a function.\n\n```mantis\nfn add(a i64, b i64) i64 { return a + b; }\n```"),
     ("let", "Declares an immutable local binding.\n\n```mantis\nlet x = 42;\nlet y i64 = 7;\n```"),
     ("mut", "Declares a mutable binding or parameter."),
@@ -2208,6 +2314,18 @@ mod tests {
     }
 
     #[test]
+    fn pub_is_documented_and_completed_as_a_keyword() {
+        let src = "pub fn hello() i32 { return 0; }\n";
+        let s = server_with(src);
+        let h = hover_at(&s, src, "pub fn").expect("pub hover");
+        assert!(h.contains("visible outside its module"), "got: {}", h);
+        assert!(s
+            .completion("test://ms", Position { line: 0, character: 0 })
+            .iter()
+            .any(|item| item.label == "pub"));
+    }
+
+    #[test]
     fn definition_jumps_to_function_decl() {
         let src = "fn helper() i64 {\n    return 1;\n}\n\nfn main() i32 {\n    let v = helper();\n    return v as i32;\n}\n";
         let s = server_with(src);
@@ -2219,6 +2337,50 @@ mod tests {
     }
 
     #[test]
+    fn definition_follows_module_alias_into_file() {
+        let root = std::env::temp_dir().join(format!("mantis-lsp-{}", std::process::id()));
+        let module_dir = root.join("demo").join("src");
+        std::fs::create_dir_all(&module_dir).unwrap();
+        let module_file = module_dir.join("lib.ms");
+        std::fs::write(&module_file, "fn hello() i64 { return 1; }\n").unwrap();
+
+        let uri = format!("file://{}", root.join("main.ms").display());
+        let src = "use demo as d;\nfn main() i32 { return d.hello() as i32; }\n";
+        let mut server = MantisLanguageServer::new();
+        server.did_open(uri.clone(), src.to_string());
+        let offset = src.find("hello").unwrap();
+        let location = server
+            .definition_location(&uri, offset_to_position(src, offset))
+            .expect("aliased module definition");
+
+        assert_eq!(location.uri, format!("file://{}", module_file.display()));
+        assert_eq!(location.range.start.line, 0);
+        assert_eq!(location.range.start.character, 3);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn definition_follows_plain_use_module_path() {
+        let root = std::env::temp_dir().join(format!("mantis-lsp-use-{}", std::process::id()));
+        let module_dir = root.join("std").join("src");
+        std::fs::create_dir_all(&module_dir).unwrap();
+        let module_file = module_dir.join("lib.ms");
+        std::fs::write(&module_file, "pub fn hello() i64 { return 1; }\n").unwrap();
+
+        let uri = format!("file://{}", root.join("main.ms").display());
+        let src = "use std;\nfn main() i32 { return 0; }\n";
+        let mut server = MantisLanguageServer::new();
+        server.did_open(uri.clone(), src.to_string());
+        let offset = src.find("std").unwrap();
+        let location = server
+            .definition_location(&uri, offset_to_position(src, offset))
+            .expect("plain use module definition");
+
+        assert_eq!(location.uri, format!("file://{}", module_file.display()));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn hover_enum_variant() {
         let src = "type Opt = enum {\n    Some(i64),\n    None\n}\n\nfn go(o Opt) i64 {\n    match o {\n        Opt.Some(v) : { return v; },\n        Opt.None : { return 0; }\n    }\n}\n";
         let s = server_with(src);
@@ -2227,4 +2389,3 @@ mod tests {
         assert!(h.contains("Opt"), "got: {}", h);
     }
 }
-

@@ -64,6 +64,18 @@
           "members": [
             {
               "type": "SYMBOL",
+              "name": "pub"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
               "name": "async"
             },
             {
@@ -1631,6 +1643,10 @@
           }
         ]
       }
+    },
+    "pub": {
+      "type": "STRING",
+      "value": "pub"
     },
     "fn": {
       "type": "STRING",

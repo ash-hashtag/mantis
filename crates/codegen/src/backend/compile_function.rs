@@ -1025,11 +1025,24 @@ pub fn compile_node(
             }
             UnaryOp::AddrOf => match operand.as_ref() {
                 Expr::Ident(ident) => {
-                    let var = ms_ctx.var_scopes.find_variable(&ident.name).unwrap();
+                    // Values passed as scalar parameters normally live only in
+                    // Cranelift SSA variables.  `@value` must still produce a
+                    // real address (stdlib uses this for memcpy), so spill the
+                    // value to a stack slot on first address-taking use.
+                    let var = ms_ctx.var_scopes.find_variable_mut(&ident.name).unwrap();
                     let ptr = if let Some(ss) = var.stack_slot {
                         fbx.ins().stack_addr(types::I64, ss, 0)
                     } else {
-                        var.value(fbx, ms_ctx)
+                        let value = fbx.use_var(var.c_var);
+                        let slot = fbx.create_sized_stack_slot(StackSlotData::new(
+                            StackSlotKind::ExplicitSlot,
+                            8,
+                            0,
+                        ));
+                        let ptr = fbx.ins().stack_addr(types::I64, slot, 0);
+                        fbx.ins().store(MemFlagsData::new(), value, ptr, 0);
+                        var.stack_slot = Some(slot);
+                        ptr
                     };
                     let ty = ms_ctx
                         .current_module

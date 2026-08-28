@@ -43,6 +43,17 @@ impl MsVar {
             .current_module
             .type_registry
             .get_from_type_id(self.ty_id);
+        if let Some(ss) = self.stack_slot {
+            if let Some(crate::registries::types::MsType::Native(native)) = ty {
+                let ptr = fbx.ins().stack_addr(cranelift::prelude::types::I64, ss, 0);
+                return fbx.ins().load(
+                    native.to_cl_type().unwrap(),
+                    cranelift::prelude::MemFlagsData::new(),
+                    ptr,
+                    0,
+                );
+            }
+        }
         if let Some(crate::registries::types::MsType::Ref(_, _)) = ty {
             if let Some(ss) = self.stack_slot {
                 let ptr = fbx.ins().stack_addr(cranelift::prelude::types::I64, ss, 0);

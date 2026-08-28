@@ -9,7 +9,7 @@
 (boolean) @constant.builtin.boolean
 
 [
-  (fn) (let) (mut) (return)
+  (pub) (fn) (let) (mut) (return)
   (if) (elif) (else)
   (loop) (break) (continue)
   (type) (struct) (enum)

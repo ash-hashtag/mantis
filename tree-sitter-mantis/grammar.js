@@ -16,7 +16,7 @@ module.exports = grammar({
       $.use_declaration, $.import_declaration, $.trait_declaration,
       $.impl_declaration
     ),
-    function_declaration: $ => seq(optional($.async), $.fn, field('name', $.identifier),
+    function_declaration: $ => seq(optional($.pub), optional($.async), $.fn, field('name', $.identifier),
       $.parameter_list,
       choice(
         seq($.return_type, optional($.extern), optional($.block), optional(';')),
@@ -77,7 +77,7 @@ module.exports = grammar({
     identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,
     comment: _ => token(choice(seq('//', /.*/), seq('/*', /[^*]*\*+([^/*][^*]*\*+)*/, '/'))),
 
-    fn: _ => 'fn', let: _ => 'let', mut: _ => 'mut', return: _ => 'return',
+    pub: _ => 'pub', fn: _ => 'fn', let: _ => 'let', mut: _ => 'mut', return: _ => 'return',
     if: _ => 'if', elif: _ => 'elif', else: _ => 'else', loop: _ => 'loop',
     break: _ => 'break', continue: _ => 'continue', type: _ => 'type',
     struct: _ => 'struct', enum: _ => 'enum', trait: _ => 'trait', impl: _ => 'impl',

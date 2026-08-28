@@ -238,9 +238,12 @@ fn handle_build() i32 {
     print_str(" ...\n");
 
     let mut link_cmd = String.with_capacity(512);
-    link_cmd.push_str("cc ~/.mantis/pkgcache/*/*.o ");
+    // main.o contains the dependency implementations selected for this
+    // compilation unit. Put it first so duplicate generated block symbols do
+    // not get replaced by stale cached package objects.
+    link_cmd.push_str("cc ");
     link_cmd.push_str(debug_dir.as_str());
-    link_cmd.push_str("/main.o -Wl,--allow-multiple-definition -o ");
+    link_cmd.push_str("/main.o ~/.mantis/pkgcache/*/*.o -Wl,--allow-multiple-definition -o ");
     link_cmd.push_str(target_out.as_str());
     link_cmd.push_str(" -lpthread -lm -ldl");
 
